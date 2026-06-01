@@ -991,6 +991,7 @@ export function generateSeaZones(
       temperatureGlobalModifier: 0,
       temperatureBiomeModifier: 0,
       temperature: 0,
+      moisture: 1,
     })
 
     seaZoneIdByCellId.set(cell.id, id)

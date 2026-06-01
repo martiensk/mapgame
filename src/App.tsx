@@ -16,12 +16,51 @@ function generateRandomSeed(): string {
   return `seed-${uuid}`
 }
 
+function generateRandomMoistureBaseLevel(): number {
+  const minimum = 0.1
+  const maximum = 0.4
+  const rawValue = minimum + Math.random() * (maximum - minimum)
+  return Number(rawValue.toFixed(2))
+}
+
 function formatTemperature(value: number): string {
   return value.toFixed(3)
 }
 
 function formatElevation(value: number): string {
   return value.toFixed(3)
+}
+
+function formatMoisturePercent(value: number): string {
+  return (value * 100).toFixed(1)
+}
+
+function moistureNameFromValue(moisture: number): string {
+  if (moisture <= 0.15) {
+    return 'Parched'
+  }
+
+  if (moisture <= 0.3) {
+    return 'Arid'
+  }
+
+  if (moisture <= 0.45) {
+    return 'Dry'
+  }
+
+  if (moisture <= 0.6) {
+    return 'Balanced'
+  }
+
+  if (moisture <= 0.75) {
+    return 'Humid'
+  }
+
+  if (moisture <= 0.9) {
+    return 'Wet'
+  }
+
+  return 'Saturated'
 }
 
 function terrainTypeFromElevation(elevation: number, isSeaZone: boolean): string {
@@ -56,6 +95,9 @@ function App() {
   const [mapSize, setMapSize] = useState<MapSize>(DEFAULT_MAP_SIZE)
   const [latitudeTemperatureGamma, setLatitudeTemperatureGamma] = useState(
     WORLD_SCALE_CONFIGS[DEFAULT_MAP_SIZE].latitudeTemperatureGamma,
+  )
+  const [moistureBaseLevel, setMoistureBaseLevel] = useState(
+    generateRandomMoistureBaseLevel(),
   )
   const [isMenuCollapsed, setIsMenuCollapsed] = useState(true)
   const [displayMode, setDisplayMode] = useState<MapDisplayMode>(
@@ -114,9 +156,12 @@ function App() {
   const onRegenerate = (): void => {
     const typedSeed = seed.trim()
     const nextSeed = typedSeed || generateRandomSeed()
+    const nextMoistureBaseLevel = generateRandomMoistureBaseLevel()
+    setMoistureBaseLevel(nextMoistureBaseLevel)
     const nextWorld = worldState.regenerate(nextSeed, {
       ...WORLD_SCALE_CONFIGS[mapSize],
       latitudeTemperatureGamma,
+      moistureBaseLevel: nextMoistureBaseLevel,
     })
     setHoveredCounty(null)
     setHoveredSeaZone(null)
@@ -153,6 +198,7 @@ function App() {
             <option value="temperature">Temperature</option>
             <option value="climate">Climate</option>
             <option value="elevation">Elevation</option>
+            <option value="moisture">Moisture</option>
           </select>
         </label>
         <button type="button" className="header-generate" onClick={onRegenerate}>
@@ -216,6 +262,20 @@ function App() {
             />
           </label>
           <p>Gamma: {latitudeTemperatureGamma.toFixed(2)}</p>
+
+          <label className="scale-row" htmlFor="moisture-base-level">
+            <span>Moisture base level</span>
+            <input
+              id="moisture-base-level"
+              type="range"
+              min="0"
+              max="0.6"
+              step="0.01"
+              value={moistureBaseLevel}
+              onChange={(event) => setMoistureBaseLevel(Number(event.target.value))}
+            />
+          </label>
+          <p>Base moisture: {moistureBaseLevel.toFixed(2)}</p>
         </section>
 
         <dl className="stats">
@@ -256,6 +316,8 @@ function App() {
                 {terrainTypeFromElevation(hoveredRegion.elevation, Boolean(hoveredSeaZone))}
               </p>
               <p>Elevation: {formatElevation(hoveredRegion.elevation)}</p>
+              <p>Moisture: {formatMoisturePercent(hoveredRegion.moisture)}</p>
+              <p>Moisture Band: {moistureNameFromValue(hoveredRegion.moisture)}</p>
               <p>Base Temp: {formatTemperature(hoveredRegion.temperatureBase)}</p>
               <p>Final Temp: {formatTemperature(hoveredRegion.temperature)}</p>
               {hoveredSeaZone && hoveredSeaZoneLayer !== null ? (
@@ -316,6 +378,8 @@ function App() {
                 Terrain: {terrainTypeFromElevation(hoveredCounty.elevation, false)}
               </p>
               <p>Elevation: {formatElevation(hoveredCounty.elevation)}</p>
+              <p>Moisture: {formatMoisturePercent(hoveredCounty.moisture)}</p>
+              <p>Moisture Band: {moistureNameFromValue(hoveredCounty.moisture)}</p>
               <p>Base Temp: {formatTemperature(hoveredCounty.temperatureBase)}</p>
               <p>Final Temp: {formatTemperature(hoveredCounty.temperature)}</p>
             </>
@@ -332,6 +396,8 @@ function App() {
                 Terrain: {terrainTypeFromElevation(hoveredSeaZone.elevation, true)}
               </p>
               <p>Elevation: {formatElevation(hoveredSeaZone.elevation)}</p>
+              <p>Moisture: {formatMoisturePercent(hoveredSeaZone.moisture)}</p>
+              <p>Moisture Band: {moistureNameFromValue(hoveredSeaZone.moisture)}</p>
               <p>Base Temp: {formatTemperature(hoveredSeaZone.temperatureBase)}</p>
               <p>Final Temp: {formatTemperature(hoveredSeaZone.temperature)}</p>
             </>

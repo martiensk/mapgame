@@ -491,6 +491,12 @@ export function generateCounties(
       temperatureGlobalModifier: 0,
       temperatureBiomeModifier: 0,
       temperature: 0,
+      moistureBase: 0,
+      moistureWaterInfluence: 0,
+      moistureWindModifier: 0,
+      moistureOrographicModifier: 0,
+      moistureEvaporationPenalty: 0,
+      moisture: 0,
     })
 
     countyIdsByLandMass.get(landMassId)?.push(id)

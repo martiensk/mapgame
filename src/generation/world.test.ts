@@ -254,6 +254,7 @@ describe('generateWorld', () => {
         globalModifier: county.temperatureGlobalModifier,
         final: county.temperature,
         elevation: county.elevation,
+        moisture: county.moisture,
       })),
     ).toEqual(
       second.counties.map((county) => ({
@@ -264,6 +265,7 @@ describe('generateWorld', () => {
         globalModifier: county.temperatureGlobalModifier,
         final: county.temperature,
         elevation: county.elevation,
+        moisture: county.moisture,
       })),
     )
     expect(
@@ -275,6 +277,7 @@ describe('generateWorld', () => {
         globalModifier: seaZone.temperatureGlobalModifier,
         final: seaZone.temperature,
         elevation: seaZone.elevation,
+        moisture: seaZone.moisture,
       })),
     ).toEqual(
       second.seaZones.map((seaZone) => ({
@@ -285,8 +288,26 @@ describe('generateWorld', () => {
         globalModifier: seaZone.temperatureGlobalModifier,
         final: seaZone.temperature,
         elevation: seaZone.elevation,
+        moisture: seaZone.moisture,
       })),
     )
+  })
+
+  it('assigns county moisture in range and sea-zone moisture to full saturation', () => {
+    const world = generateWorld('moisture-range-check', DEFAULT_WORLD_CONFIG)
+
+    world.counties.forEach((county) => {
+      expect(county.moistureBase).toBeGreaterThanOrEqual(0)
+      expect(county.moistureBase).toBeLessThanOrEqual(1)
+      expect(county.moistureWaterInfluence).toBeGreaterThanOrEqual(0)
+      expect(county.moistureWaterInfluence).toBeLessThanOrEqual(1)
+      expect(county.moisture).toBeGreaterThanOrEqual(0)
+      expect(county.moisture).toBeLessThanOrEqual(1)
+    })
+
+    world.seaZones.forEach((seaZone) => {
+      expect(seaZone.moisture).toBe(1)
+    })
   })
 
   it('assigns county elevation in range and sea-zone elevation as ocean zero', () => {

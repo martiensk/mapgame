@@ -32,6 +32,12 @@ export interface County {
   temperatureBiomeModifier: number
   temperature: number
   elevation: number
+  moistureBase: number
+  moistureWaterInfluence: number
+  moistureWindModifier: number
+  moistureOrographicModifier: number
+  moistureEvaporationPenalty: number
+  moisture: number
 }
 
 export interface SeaZone {
@@ -48,6 +54,7 @@ export interface SeaZone {
   temperatureBiomeModifier: number
   temperature: number
   elevation: number
+  moisture: number
 }
 
 export interface RiverSegment {
@@ -124,7 +131,19 @@ export interface WorldConfig {
   riverDownstreamWidthGain: number
   riverWidthMinFactor: number
   riverWidthMaxFactor: number
-  riverMouthFlareFactor: number
-  riverMouthFlareSpan: number
   riverCountyTemperatureCooling: number
+  moistureBaseLevel: number
+  moistureMaxWaterDistanceSteps: number
+  moistureWaterWeight: number
+  moistureWindOceanBoostWeight: number
+  moistureWindLandPenaltyPerStep: number
+  moistureWindMaxTraceSteps: number
+  moistureMountainThreshold: number
+  moistureWindwardWeight: number
+  moistureLeewardWeight: number
+  moistureMountainDistanceDecay: number
+  moistureEvaporationBase: number
+  moistureEvaporationHeatStart: number
+  moistureEvaporationHeatFactor: number
+  moistureNoiseStrength: number
 }

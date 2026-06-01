@@ -3,6 +3,7 @@ import temperatureMapper from '../data/temperatureMapper.json'
 import type { County, SeaZone, WorldConfig, WorldData } from '../types/world'
 import { generateCounties, mergeCountiesPhase } from './counties'
 import { assignRegionElevations } from './elevation'
+import { assignRegionMoisture, pickGlobalWindDirection } from './moisture'
 import { generateLandMassShapes, toLandMassRecords } from './landmass'
 import { createSeededRandom } from './random'
 import { generateRivers } from './rivers'
@@ -303,6 +304,8 @@ export function generateWorld(
     random,
   )
 
+  const moistureWindDirection = pickGlobalWindDirection(seed)
+
   assignRegionTemperatures({
     metadata: { height: config.height },
     config: {
@@ -312,6 +315,30 @@ export function generateWorld(
     counties: countyResult.counties,
     seaZones,
     rivers,
+  })
+
+  assignRegionMoisture({
+    seed,
+    windDirection: moistureWindDirection,
+    counties: countyResult.counties,
+    seaZones,
+    rivers,
+    config: {
+      moistureBaseLevel: config.moistureBaseLevel,
+      moistureMaxWaterDistanceSteps: config.moistureMaxWaterDistanceSteps,
+      moistureWaterWeight: config.moistureWaterWeight,
+      moistureWindOceanBoostWeight: config.moistureWindOceanBoostWeight,
+      moistureWindLandPenaltyPerStep: config.moistureWindLandPenaltyPerStep,
+      moistureWindMaxTraceSteps: config.moistureWindMaxTraceSteps,
+      moistureMountainThreshold: config.moistureMountainThreshold,
+      moistureWindwardWeight: config.moistureWindwardWeight,
+      moistureLeewardWeight: config.moistureLeewardWeight,
+      moistureMountainDistanceDecay: config.moistureMountainDistanceDecay,
+      moistureEvaporationBase: config.moistureEvaporationBase,
+      moistureEvaporationHeatStart: config.moistureEvaporationHeatStart,
+      moistureEvaporationHeatFactor: config.moistureEvaporationHeatFactor,
+      moistureNoiseStrength: config.moistureNoiseStrength,
+    },
   })
 
   landMasses.forEach((landMass) => {
