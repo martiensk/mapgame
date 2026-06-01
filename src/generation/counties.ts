@@ -486,6 +486,7 @@ export function generateCounties(
       landMassId,
       biomeId: 'plains',
       climateId: 'temperate',
+      elevation: 0,
       temperatureBase: 0,
       temperatureGlobalModifier: 0,
       temperatureBiomeModifier: 0,

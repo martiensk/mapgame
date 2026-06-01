@@ -20,6 +20,38 @@ function formatTemperature(value: number): string {
   return value.toFixed(3)
 }
 
+function formatElevation(value: number): string {
+  return value.toFixed(3)
+}
+
+function terrainTypeFromElevation(elevation: number, isSeaZone: boolean): string {
+  if (isSeaZone) {
+    return 'Ocean'
+  }
+
+  if (elevation <= 0.05) {
+    return 'Coast'
+  }
+
+  if (elevation <= 0.35) {
+    return 'Flatland'
+  }
+
+  if (elevation <= 0.6) {
+    return 'Hills'
+  }
+
+  if (elevation <= 0.7) {
+    return 'High Hills'
+  }
+
+  if (elevation <= 0.9) {
+    return 'Mountains'
+  }
+
+  return 'Peaks'
+}
+
 function App() {
   const [mapSize, setMapSize] = useState<MapSize>(DEFAULT_MAP_SIZE)
   const [latitudeTemperatureGamma, setLatitudeTemperatureGamma] = useState(
@@ -117,6 +149,7 @@ function App() {
             <option value="sea-zone">Sea zone</option>
             <option value="temperature">Temperature</option>
             <option value="climate">Climate</option>
+            <option value="elevation">Elevation</option>
           </select>
         </label>
         <button type="button" className="header-generate" onClick={onRegenerate}>
@@ -205,6 +238,11 @@ function App() {
               <p>Type: {hoveredCounty ? 'County' : 'Sea-zone'}</p>
               <p>Biome: {hoveredRegion.biomeId}</p>
               <p>Climate: {hoveredRegion.climateId}</p>
+              <p>
+                Terrain:{' '}
+                {terrainTypeFromElevation(hoveredRegion.elevation, Boolean(hoveredSeaZone))}
+              </p>
+              <p>Elevation: {formatElevation(hoveredRegion.elevation)}</p>
               <p>Base Temp: {formatTemperature(hoveredRegion.temperatureBase)}</p>
               <p>Final Temp: {formatTemperature(hoveredRegion.temperature)}</p>
               {hoveredSeaZone && hoveredSeaZoneLayer !== null ? (
@@ -245,6 +283,10 @@ function App() {
               <p>Land-mass: {hoveredCounty.landMassId}</p>
               <p>Biome: {hoveredCounty.biomeId}</p>
               <p>Climate: {hoveredCounty.climateId}</p>
+              <p>
+                Terrain: {terrainTypeFromElevation(hoveredCounty.elevation, false)}
+              </p>
+              <p>Elevation: {formatElevation(hoveredCounty.elevation)}</p>
               <p>Base Temp: {formatTemperature(hoveredCounty.temperatureBase)}</p>
               <p>Final Temp: {formatTemperature(hoveredCounty.temperature)}</p>
             </>
@@ -257,6 +299,10 @@ function App() {
               <p>Coastal counties: {hoveredSeaZone.coastalCountyIds.length}</p>
               <p>Biome: {hoveredSeaZone.biomeId}</p>
               <p>Climate: {hoveredSeaZone.climateId}</p>
+              <p>
+                Terrain: {terrainTypeFromElevation(hoveredSeaZone.elevation, true)}
+              </p>
+              <p>Elevation: {formatElevation(hoveredSeaZone.elevation)}</p>
               <p>Base Temp: {formatTemperature(hoveredSeaZone.temperatureBase)}</p>
               <p>Final Temp: {formatTemperature(hoveredSeaZone.temperature)}</p>
             </>

@@ -221,6 +221,7 @@ describe('generateWorld', () => {
         biomeModifier: county.temperatureBiomeModifier,
         globalModifier: county.temperatureGlobalModifier,
         final: county.temperature,
+        elevation: county.elevation,
       })),
     ).toEqual(
       second.counties.map((county) => ({
@@ -230,6 +231,7 @@ describe('generateWorld', () => {
         biomeModifier: county.temperatureBiomeModifier,
         globalModifier: county.temperatureGlobalModifier,
         final: county.temperature,
+        elevation: county.elevation,
       })),
     )
     expect(
@@ -240,6 +242,7 @@ describe('generateWorld', () => {
         biomeModifier: seaZone.temperatureBiomeModifier,
         globalModifier: seaZone.temperatureGlobalModifier,
         final: seaZone.temperature,
+        elevation: seaZone.elevation,
       })),
     ).toEqual(
       second.seaZones.map((seaZone) => ({
@@ -249,7 +252,70 @@ describe('generateWorld', () => {
         biomeModifier: seaZone.temperatureBiomeModifier,
         globalModifier: seaZone.temperatureGlobalModifier,
         final: seaZone.temperature,
+        elevation: seaZone.elevation,
       })),
     )
+  })
+
+  it('assigns county elevation in range and sea-zone elevation as ocean zero', () => {
+    const world = generateWorld('elevation-range-check', DEFAULT_WORLD_CONFIG)
+
+    world.counties.forEach((county) => {
+      expect(county.elevation).toBeGreaterThanOrEqual(0)
+      expect(county.elevation).toBeLessThanOrEqual(1)
+    })
+
+    world.seaZones.forEach((seaZone) => {
+      expect(seaZone.elevation).toBe(0)
+    })
+  })
+
+  it('keeps average inland county elevation higher than coastal counties', () => {
+    const world = generateWorld('elevation-inland-trend', DEFAULT_WORLD_CONFIG)
+    const coastalCountyIds = new Set<string>()
+
+    world.seaZones.forEach((seaZone) => {
+      seaZone.coastalCountyIds.forEach((countyId) => coastalCountyIds.add(countyId))
+    })
+
+    const coastalElevations = world.counties
+      .filter((county) => coastalCountyIds.has(county.id))
+      .map((county) => county.elevation)
+    const inlandElevations = world.counties
+      .filter((county) => !coastalCountyIds.has(county.id))
+      .map((county) => county.elevation)
+
+    expect(coastalElevations.length).toBeGreaterThan(0)
+    expect(inlandElevations.length).toBeGreaterThan(0)
+
+    const meanCoastal =
+      coastalElevations.reduce((sum, elevation) => sum + elevation, 0) /
+      coastalElevations.length
+    const meanInland =
+      inlandElevations.reduce((sum, elevation) => sum + elevation, 0) /
+      inlandElevations.length
+
+    expect(meanInland).toBeGreaterThan(meanCoastal)
+  })
+
+  it('stores land-mass elevation statistics', () => {
+    const world = generateWorld('elevation-landmass-stats', DEFAULT_WORLD_CONFIG)
+
+    world.landMasses.forEach((landMass) => {
+      expect(landMass.elevationMin).toBeGreaterThanOrEqual(0)
+      expect(landMass.elevationMax).toBeLessThanOrEqual(1)
+      expect(landMass.elevationMean).toBeGreaterThanOrEqual(landMass.elevationMin)
+      expect(landMass.elevationMean).toBeLessThanOrEqual(landMass.elevationMax)
+    })
+  })
+
+  it('keeps mountain counties more common than peak counties', () => {
+    const world = generateWorld('elevation-peak-balance', DEFAULT_WORLD_CONFIG)
+    const mountainCount = world.counties.filter(
+      (county) => county.elevation >= 0.7 && county.elevation < 0.9,
+    ).length
+    const peakCount = world.counties.filter((county) => county.elevation >= 0.9).length
+
+    expect(mountainCount).toBeGreaterThan(peakCount)
   })
 })

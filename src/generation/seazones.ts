@@ -986,6 +986,7 @@ export function generateSeaZones(
       coastalCountyIds: [],
       biomeId: 'ocean',
       climateId: 'temperate',
+      elevation: 0,
       temperatureBase: 0,
       temperatureGlobalModifier: 0,
       temperatureBiomeModifier: 0,

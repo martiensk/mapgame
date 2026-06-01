@@ -2,6 +2,7 @@ import { DEFAULT_MAP_SIZE, WORLD_SCALE_CONFIGS } from '../config/worldScaleConfi
 import temperatureMapper from '../data/temperatureMapper.json'
 import type { County, SeaZone, WorldConfig, WorldData } from '../types/world'
 import { generateCounties, mergeCountiesPhase } from './counties'
+import { assignRegionElevations } from './elevation'
 import { generateLandMassShapes, toLandMassRecords } from './landmass'
 import { createSeededRandom } from './random'
 import { computeSeaZoneLayerById } from './seaZoneLayers'
@@ -259,11 +260,42 @@ export function generateWorld(
     random,
   )
 
+  const landMasses = toLandMassRecords(
+    landMassShapes,
+    countyResult.countyIdsByLandMass,
+  )
+  const elevationStatsByLandMassId = assignRegionElevations({
+    seed,
+    counties: countyResult.counties,
+    seaZones,
+    landMasses,
+    config: {
+      elevationInlandPower: config.elevationInlandPower,
+      elevationRangeDensity: config.elevationRangeDensity,
+      elevationPeakDensity: config.elevationPeakDensity,
+      elevationRangeStrength: config.elevationRangeStrength,
+      elevationPeakStrength: config.elevationPeakStrength,
+      elevationNoiseStrength: config.elevationNoiseStrength,
+      elevationCoastalReliefChance: config.elevationCoastalReliefChance,
+    },
+  })
+
   assignRegionTemperatures({
     metadata: { height: config.height },
     config: { latitudeTemperatureGamma: config.latitudeTemperatureGamma },
     counties: countyResult.counties,
     seaZones,
+  })
+
+  landMasses.forEach((landMass) => {
+    const stats = elevationStatsByLandMassId.get(landMass.id)
+    if (!stats) {
+      return
+    }
+
+    landMass.elevationMin = stats.min
+    landMass.elevationMean = stats.mean
+    landMass.elevationMax = stats.max
   })
 
   return {
@@ -280,6 +312,6 @@ export function generateWorld(
     },
     counties: countyResult.counties,
     seaZones,
-    landMasses: toLandMassRecords(landMassShapes, countyResult.countyIdsByLandMass),
+    landMasses,
   }
 }

@@ -39,6 +39,7 @@ export type MapDisplayMode =
   | 'sea-zone'
   | 'temperature'
   | 'climate'
+  | 'elevation'
 
 export class PixiMap {
   private readonly host: HTMLElement
@@ -464,7 +465,11 @@ export class PixiMap {
       let strokeColor = 0x102112
       let alpha = 0.88
 
-      if (this.displayMode === 'temperature' || this.displayMode === 'climate') {
+      if (
+        this.displayMode === 'temperature' ||
+        this.displayMode === 'climate' ||
+        this.displayMode === 'elevation'
+      ) {
         if (isHovered) {
           fillColor = this.lightenTowardWhite(fillColor, 0.18)
           strokeColor = 0x203c0e
@@ -596,6 +601,10 @@ export class PixiMap {
       return this.climateColor(county.climateId)
     }
 
+    if (this.displayMode === 'elevation') {
+      return this.elevationColor(county.elevation)
+    }
+
     if (this.displayMode !== 'temperature') {
       return 0x5f8d52
     }
@@ -628,6 +637,32 @@ export class PixiMap {
     const normalizedTemperature = Math.max(0, Math.min(1, temperature))
     const temperatureColor = this.temperatureGradientColor(normalizedTemperature)
     return this.blendColors(baseColor, temperatureColor, 0.48)
+  }
+
+  private elevationColor(elevation: number): number {
+    const e = Math.max(0, Math.min(1, elevation))
+
+    if (e <= 0.05) {
+      return this.blendColors(0xdac68e, 0xb7a26a, e / 0.05)
+    }
+
+    if (e <= 0.35) {
+      return this.blendColors(0x8eb668, 0x5f8d52, (e - 0.05) / 0.3)
+    }
+
+    if (e <= 0.6) {
+      return this.blendColors(0x6f8a4c, 0x85744f, (e - 0.35) / 0.25)
+    }
+
+    if (e <= 0.7) {
+      return this.blendColors(0x85744f, 0x9c8266, (e - 0.6) / 0.1)
+    }
+
+    if (e <= 0.9) {
+      return this.blendColors(0x6e6d6e, 0xababab, (e - 0.7) / 0.2)
+    }
+
+    return this.blendColors(0xcccccc, 0xf5f5f5, (e - 0.9) / 0.1)
   }
 
   private temperatureGradientColor(normalizedTemperature: number): number {

@@ -724,5 +724,8 @@ export function toLandMassRecords(
     type: shape.type,
     area: shape.area,
     countyIds: countyIdsByLandMass.get(shape.id) ?? [],
+    elevationMin: 0,
+    elevationMean: 0,
+    elevationMax: 0,
   }))
 }

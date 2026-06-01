@@ -31,6 +31,7 @@ export interface County {
   temperatureGlobalModifier: number
   temperatureBiomeModifier: number
   temperature: number
+  elevation: number
 }
 
 export interface SeaZone {
@@ -46,6 +47,7 @@ export interface SeaZone {
   temperatureGlobalModifier: number
   temperatureBiomeModifier: number
   temperature: number
+  elevation: number
 }
 
 export interface LandMass {
@@ -53,6 +55,9 @@ export interface LandMass {
   type: 'continent' | 'island'
   area: number
   countyIds: RegionId[]
+  elevationMin: number
+  elevationMax: number
+  elevationMean: number
 }
 
 export interface WorldData {
@@ -81,4 +86,11 @@ export interface WorldConfig {
   edgeOceanPenaltyStrength: number
   edgeSoftMargin: number
   latitudeTemperatureGamma: number
+  elevationInlandPower: number
+  elevationRangeDensity: number
+  elevationPeakDensity: number
+  elevationRangeStrength: number
+  elevationPeakStrength: number
+  elevationNoiseStrength: number
+  elevationCoastalReliefChance: number
 }
