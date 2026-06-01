@@ -25,6 +25,7 @@ function buildSeaZone(id: string, polygon: SeaZone['polygon'], neighbors: string
     temperatureGlobalModifier: 0,
     temperatureBiomeModifier: 0,
     temperature: 0,
+    elevation: 0,
   }
 }
 

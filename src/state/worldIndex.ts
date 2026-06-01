@@ -3,6 +3,8 @@ import type {
   County,
   LandMass,
   RegionId,
+  River,
+  RiverSegment,
   SeaZone,
   WorldData,
 } from '../types/world'
@@ -16,6 +18,10 @@ export interface WorldIndex {
   coastalCountyIdsBySeaZoneId: Map<RegionId, RegionId[]>
   seaZoneIdsByCountyId: Map<RegionId, RegionId[]>
   seaZoneLayerById: Map<RegionId, number>
+  riversById: Map<string, River>
+  riversByCountyId: Map<RegionId, River[]>
+  riverSegmentsById: Map<RegionId, RiverSegment>
+  riverSegmentsByCountyId: Map<RegionId, RiverSegment[]>
 }
 
 export function createWorldIndex(world: WorldData): WorldIndex {
@@ -63,6 +69,42 @@ export function createWorldIndex(world: WorldData): WorldIndex {
     })
   })
 
+  function buildRiversByCountyId(rivers: River[]): Map<RegionId, River[]> {
+    const map = new Map<RegionId, River[]>()
+    for (const river of rivers) {
+      for (const countyId of river.countyPath) {
+        const existing = map.get(countyId)
+        if (existing) {
+          existing.push(river)
+        } else {
+          map.set(countyId, [river])
+        }
+      }
+    }
+    return map
+  }
+
+  function buildRiverSegmentsByCountyId(rivers: River[]): Map<RegionId, RiverSegment[]> {
+    const map = new Map<RegionId, RiverSegment[]>()
+
+    for (const river of rivers) {
+      for (const segment of river.segments) {
+        for (const countyId of segment.countyNeighborIds) {
+          const existing = map.get(countyId)
+          if (existing) {
+            existing.push(segment)
+          } else {
+            map.set(countyId, [segment])
+          }
+        }
+      }
+    }
+
+    return map
+  }
+
+  const riverSegments = world.rivers.flatMap((river) => river.segments)
+
   return {
     countiesById,
     seaZonesById,
@@ -72,5 +114,9 @@ export function createWorldIndex(world: WorldData): WorldIndex {
     coastalCountyIdsBySeaZoneId,
     seaZoneIdsByCountyId,
     seaZoneLayerById: computeSeaZoneLayerById(world.seaZones),
+    riversById: new Map(world.rivers.map((river) => [river.id, river])),
+    riversByCountyId: buildRiversByCountyId(world.rivers),
+    riverSegmentsById: new Map(riverSegments.map((segment) => [segment.id, segment])),
+    riverSegmentsByCountyId: buildRiverSegmentsByCountyId(world.rivers),
   }
 }

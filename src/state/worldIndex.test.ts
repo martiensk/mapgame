@@ -53,6 +53,22 @@ describe('createWorldIndex', () => {
       expect(index.seaZoneLayerById.has(seaZone.id)).toBe(true)
     })
   })
+
+  it('indexes river segments by id and neighboring counties', () => {
+    const world = generateWorld('index-river-segments', WORLD_SCALE_CONFIGS.small)
+    const index = createWorldIndex(world)
+    const allSegments = world.rivers.flatMap((river) => river.segments)
+
+    expect(index.riverSegmentsById.size).toBe(allSegments.length)
+
+    allSegments.forEach((segment) => {
+      expect(index.riverSegmentsById.get(segment.id)).toBe(segment)
+      segment.countyNeighborIds.forEach((countyId) => {
+        const indexedSegments = index.riverSegmentsByCountyId.get(countyId) ?? []
+        expect(indexedSegments).toContain(segment)
+      })
+    })
+  })
 })
 
 describe('createWorldState', () => {

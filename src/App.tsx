@@ -9,7 +9,7 @@ import {
 import { DEBUG_CONFIG } from './config/debugConfig'
 import { PixiMap, type MapDisplayMode } from './render/pixiMap'
 import { createWorldState } from './state/worldState'
-import type { County, SeaZone } from './types/world'
+import type { County, RiverSegment, SeaZone } from './types/world'
 
 function generateRandomSeed(): string {
   const uuid = crypto.randomUUID().split('-')[0]
@@ -69,6 +69,7 @@ function App() {
   const [world, setWorld] = useState(worldState.world)
   const [hoveredCounty, setHoveredCounty] = useState<County | null>(null)
   const [hoveredSeaZone, setHoveredSeaZone] = useState<SeaZone | null>(null)
+  const [hoveredRiverSegment, setHoveredRiverSegment] = useState<RiverSegment | null>(null)
   const [showHoveredCountyOverlay, setShowHoveredCountyOverlay] = useState(true)
   const mapHostRef = useRef<HTMLDivElement | null>(null)
   const pixiMapRef = useRef<PixiMap | null>(null)
@@ -86,6 +87,7 @@ function App() {
     const pixiMap = new PixiMap(mapHostRef.current, {
       onHoverCounty: setHoveredCounty,
       onHoverSeaZone: setHoveredSeaZone,
+      onHoverRiverSegment: setHoveredRiverSegment,
     })
 
     void pixiMap.mount(initialWorldRef.current)
@@ -118,6 +120,7 @@ function App() {
     })
     setHoveredCounty(null)
     setHoveredSeaZone(null)
+    setHoveredRiverSegment(null)
     setWorld(nextWorld)
   }
 
@@ -232,7 +235,17 @@ function App() {
 
         <section className="details">
           <h2>Hovered Region</h2>
-          {hoveredRegion ? (
+          {hoveredRiverSegment ? (
+            <>
+              <p>ID: {hoveredRiverSegment.id}</p>
+              <p>Type: River segment</p>
+              <p>River: {hoveredRiverSegment.riverId}</p>
+              <p>Flow index: {hoveredRiverSegment.flowIndex}</p>
+              <p>County neighbors: {hoveredRiverSegment.countyNeighborIds.length}</p>
+              <p>Mouth: {hoveredRiverSegment.isMouth ? 'Yes' : 'No'}</p>
+              <p>Area: {Math.round(hoveredRiverSegment.area)}</p>
+            </>
+          ) : hoveredRegion ? (
             <>
               <p>ID: {hoveredRegion.id}</p>
               <p>Type: {hoveredCounty ? 'County' : 'Sea-zone'}</p>
@@ -250,7 +263,7 @@ function App() {
               ) : null}
             </>
           ) : (
-            <p>Move the mouse over a county or sea-zone polygon.</p>
+            <p>Move the mouse over a county, sea-zone, or river segment polygon.</p>
           )}
         </section>
 
@@ -271,10 +284,26 @@ function App() {
         <div ref={mapHostRef} className="map-canvas" />
       </main>
 
-      {showHoveredCountyOverlay && hoveredRegion ? (
+      {showHoveredCountyOverlay && (hoveredRegion || hoveredRiverSegment) ? (
         <section className="selected-county-overlay" aria-hidden="true">
-          <h2>{hoveredCounty ? 'Hovered County' : 'Hovered Sea-zone'}</h2>
-          {hoveredCounty ? (
+          <h2>
+            {hoveredRiverSegment
+              ? 'Hovered River Segment'
+              : hoveredCounty
+                ? 'Hovered County'
+                : 'Hovered Sea-zone'}
+          </h2>
+          {hoveredRiverSegment ? (
+            <>
+              <p>ID: {hoveredRiverSegment.id}</p>
+              <p>River: {hoveredRiverSegment.riverId}</p>
+              <p>Flow index: {hoveredRiverSegment.flowIndex}</p>
+              <p>Area: {Math.round(hoveredRiverSegment.area)}</p>
+              <p>County neighbors: {hoveredRiverSegment.countyNeighborIds.length}</p>
+              <p>Neighbor IDs: {hoveredRiverSegment.countyNeighborIds.join(', ')}</p>
+              <p>Mouth: {hoveredRiverSegment.isMouth ? 'Yes' : 'No'}</p>
+            </>
+          ) : hoveredCounty ? (
             <>
               <p>{hoveredCounty.name}</p>
               <p>ID: {hoveredCounty.id}</p>

@@ -50,6 +50,27 @@ export interface SeaZone {
   elevation: number
 }
 
+export interface RiverSegment {
+  id: RegionId
+  riverId: string
+  polygon: Polygon
+  centroid: Point
+  area: number
+  countyNeighborIds: RegionId[]
+  flowIndex: number
+  isMouth: boolean
+}
+
+export interface River {
+  id: string
+  landMassId: RegionId
+  countyPath: RegionId[]
+  terminalNextCountyId?: RegionId
+  centerline: Point[]
+  centerlineWidths: number[]
+  segments: RiverSegment[]
+}
+
 export interface LandMass {
   id: RegionId
   type: 'continent' | 'island'
@@ -65,6 +86,7 @@ export interface WorldData {
   counties: County[]
   seaZones: SeaZone[]
   landMasses: LandMass[]
+  rivers: River[]
 }
 
 export interface WorldConfig {
@@ -93,4 +115,16 @@ export interface WorldConfig {
   elevationPeakStrength: number
   elevationNoiseStrength: number
   elevationCoastalReliefChance: number
+  riverDensityFactor: number
+  riverMinSourceElevation: number
+  riverMinLength: number
+  riverSegmentWidth: number
+  riverCurveAmplitude: number
+  riverWidthJitter: number
+  riverDownstreamWidthGain: number
+  riverWidthMinFactor: number
+  riverWidthMaxFactor: number
+  riverMouthFlareFactor: number
+  riverMouthFlareSpan: number
+  riverCountyTemperatureCooling: number
 }

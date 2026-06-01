@@ -5,6 +5,7 @@ import { generateCounties, mergeCountiesPhase } from './counties'
 import { assignRegionElevations } from './elevation'
 import { generateLandMassShapes, toLandMassRecords } from './landmass'
 import { createSeededRandom } from './random'
+import { generateRivers } from './rivers'
 import { computeSeaZoneLayerById } from './seaZoneLayers'
 import { generateSeaZones, mergeCoastalSeaZonesPhase } from './seazones'
 import { generateVoronoiWorld } from './voronoi'
@@ -97,13 +98,15 @@ function climateFromTemperature(temperature: number): string {
 
 function assignRegionTemperatures(world: {
   metadata: Pick<WorldData['metadata'], 'height'>
-  config: Pick<WorldConfig, 'latitudeTemperatureGamma'>
+  config: Pick<WorldConfig, 'latitudeTemperatureGamma' | 'riverCountyTemperatureCooling'>
   counties: County[]
   seaZones: SeaZone[]
+  rivers: WorldData['rivers']
 }): void {
   const { height } = world.metadata
-  const { latitudeTemperatureGamma } = world.config
+  const { latitudeTemperatureGamma, riverCountyTemperatureCooling } = world.config
   const layerBySeaZoneId = computeSeaZoneLayerById(world.seaZones)
+  const riverCountyIds = new Set(world.rivers.flatMap((river) => river.countyPath))
 
   world.counties.forEach((county) => {
     const base = temperatureFromY(
@@ -111,7 +114,9 @@ function assignRegionTemperatures(world: {
       height,
       latitudeTemperatureGamma,
     )
-    const biomeModifier = 0
+    const biomeModifier = riverCountyIds.has(county.id)
+      ? -riverCountyTemperatureCooling
+      : 0
     county.biomeId = PLAINS_BIOME_ID
     county.temperatureBase = base
     county.temperatureGlobalModifier = GLOBAL_TEMPERATURE_MODIFIER
@@ -280,11 +285,33 @@ export function generateWorld(
     },
   })
 
+  const rivers = generateRivers(
+    countyResult.counties,
+    seaZones,
+    landMasses,
+    {
+      riverDensityFactor: config.riverDensityFactor,
+      riverMinSourceElevation: config.riverMinSourceElevation,
+      riverMinLength: config.riverMinLength,
+      riverSegmentWidth: config.riverSegmentWidth,
+      riverCurveAmplitude: config.riverCurveAmplitude,
+      riverWidthJitter: config.riverWidthJitter,
+      riverDownstreamWidthGain: config.riverDownstreamWidthGain,
+      riverWidthMinFactor: config.riverWidthMinFactor,
+      riverWidthMaxFactor: config.riverWidthMaxFactor,
+    },
+    random,
+  )
+
   assignRegionTemperatures({
     metadata: { height: config.height },
-    config: { latitudeTemperatureGamma: config.latitudeTemperatureGamma },
+    config: {
+      latitudeTemperatureGamma: config.latitudeTemperatureGamma,
+      riverCountyTemperatureCooling: config.riverCountyTemperatureCooling,
+    },
     counties: countyResult.counties,
     seaZones,
+    rivers,
   })
 
   landMasses.forEach((landMass) => {
@@ -313,5 +340,6 @@ export function generateWorld(
     counties: countyResult.counties,
     seaZones,
     landMasses,
+    rivers,
   }
 }

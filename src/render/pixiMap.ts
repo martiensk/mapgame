@@ -1,13 +1,13 @@
 import { Application, Container, Graphics, Text } from 'pixi.js'
 import { CAMERA_CONFIG } from '../config/cameraConfig'
 import { computeSeaZoneLayerById } from '../generation/seaZoneLayers'
-import { polygonToFlatArray } from '../geometry/polygon'
+import { buildRibbonPolygon, polygonToFlatArray } from '../geometry/polygon'
 import { CameraController } from '../input/cameraController'
 import {
   bindRegionInteraction,
   type RegionInteractionCallbacks,
 } from '../input/regionInteraction'
-import type { County, Point, SeaZone, WorldData } from '../types/world'
+import type { County, Point, RiverSegment, SeaZone, WorldData } from '../types/world'
 
 interface CountyGraphicEntry {
   county: County
@@ -20,9 +20,15 @@ interface SeaZoneGraphicEntry {
   baseFillColor: number
 }
 
+interface RiverSegmentGraphicEntry {
+  riverSegment: RiverSegment
+  graphic: Graphics
+}
+
 export interface PixiMapCallbacks {
   onHoverCounty?: (county: County | null) => void
   onHoverSeaZone?: (seaZone: SeaZone | null) => void
+  onHoverRiverSegment?: (riverSegment: RiverSegment | null) => void
   onSelectCounty?: (county: County) => void
   onArtifactDetected?: (report: CoastArtifactReport) => void
 }
@@ -50,10 +56,12 @@ export class PixiMap {
   private world: WorldData | null = null
   private countyGraphics = new Map<string, CountyGraphicEntry>()
   private seaZoneGraphics = new Map<string, SeaZoneGraphicEntry>()
+  private riverSegmentGraphics = new Map<string, RiverSegmentGraphicEntry>()
   private disposeInteractions: Array<() => void> = []
   private selectedCountyId = ''
   private hoveredCountyId = ''
   private hoveredSeaZoneId = ''
+  private hoveredRiverSegmentId = ''
   private isDestroyed = false
   private mountNonce = 0
   private showWorldBorder = false
@@ -119,8 +127,10 @@ export class PixiMap {
     this.selectedCountyId = ''
     this.hoveredCountyId = ''
     this.hoveredSeaZoneId = ''
+    this.hoveredRiverSegmentId = ''
     this.callbacks.onHoverCounty?.(null)
     this.callbacks.onHoverSeaZone?.(null)
+    this.callbacks.onHoverRiverSegment?.(null)
     this.renderWorld()
   }
 
@@ -168,6 +178,7 @@ export class PixiMap {
     this.disposeInteractions = []
     this.countyGraphics.clear()
     this.seaZoneGraphics.clear()
+    this.riverSegmentGraphics.clear()
     this.worldContainer.removeChildren().forEach((child) => child.destroy())
 
     if (this.showWorldBorder) {
@@ -190,10 +201,13 @@ export class PixiMap {
       onHoverStart: (zone) => {
         this.hoveredSeaZoneId = zone.id
         this.hoveredCountyId = ''
+        this.hoveredRiverSegmentId = ''
         this.callbacks.onHoverCounty?.(null)
         this.callbacks.onHoverSeaZone?.(zone)
+        this.callbacks.onHoverRiverSegment?.(null)
         this.applyCountyStyles()
         this.applySeaZoneStyles()
+        this.applyRiverSegmentStyles()
       },
       onHoverEnd: () => {
         this.hoveredSeaZoneId = ''
@@ -235,10 +249,13 @@ export class PixiMap {
       onHoverStart: (county) => {
         this.hoveredCountyId = county.id
         this.hoveredSeaZoneId = ''
+        this.hoveredRiverSegmentId = ''
         this.callbacks.onHoverCounty?.(county)
         this.callbacks.onHoverSeaZone?.(null)
+        this.callbacks.onHoverRiverSegment?.(null)
         this.applyCountyStyles()
         this.applySeaZoneStyles()
+        this.applyRiverSegmentStyles()
       },
       onHoverEnd: () => {
         this.hoveredCountyId = ''
@@ -272,7 +289,77 @@ export class PixiMap {
 
     this.applyCountyStyles()
     this.applySeaZoneStyles()
+    this.renderRivers()
+    this.applyRiverSegmentStyles()
     this.scheduleArtifactDetection()
+  }
+
+  private renderRivers(): void {
+    if (!this.world || this.world.rivers.length === 0) {
+      return
+    }
+
+    const visualFillColor = 0x3d7ab5
+
+    for (const river of this.world.rivers) {
+      const ribbonPolygon = buildRibbonPolygon(river.centerline, river.centerlineWidths)
+      if (ribbonPolygon.length >= 6) {
+        const graphic = new Graphics()
+        this.drawPolygonToGraphic(
+          graphic,
+          ribbonPolygon,
+          visualFillColor,
+          visualFillColor,
+          0.95,
+          0,
+          0,
+        )
+        this.worldContainer.addChild(graphic)
+      }
+    }
+
+    const riverCallbacks: RegionInteractionCallbacks<RiverSegment> = {
+      onHoverStart: (riverSegment) => {
+        this.hoveredRiverSegmentId = riverSegment.id
+        this.hoveredCountyId = ''
+        this.hoveredSeaZoneId = ''
+        this.callbacks.onHoverCounty?.(null)
+        this.callbacks.onHoverSeaZone?.(null)
+        this.callbacks.onHoverRiverSegment?.(riverSegment)
+        this.applyCountyStyles()
+        this.applySeaZoneStyles()
+        this.applyRiverSegmentStyles()
+      },
+      onHoverEnd: () => {
+        this.hoveredRiverSegmentId = ''
+        this.callbacks.onHoverRiverSegment?.(null)
+        this.applyRiverSegmentStyles()
+      },
+    }
+
+    for (const river of this.world.rivers) {
+      if (river.segments.length === 0) {
+        continue
+      }
+
+      for (const segment of river.segments) {
+        const graphic = new Graphics()
+        this.drawPolygonToGraphic(graphic, segment.polygon, 0x000000, 0x000000, 0, 1, 0)
+        const disposeInteraction = bindRegionInteraction(
+          graphic,
+          segment,
+          riverCallbacks,
+          { selectable: false },
+        )
+
+        this.disposeInteractions.push(disposeInteraction)
+        this.riverSegmentGraphics.set(segment.id, {
+          riverSegment: segment,
+          graphic,
+        })
+        this.worldContainer.addChild(graphic)
+      }
+    }
   }
 
   private scheduleArtifactDetection(): void {
@@ -529,8 +616,30 @@ export class PixiMap {
     })
   }
 
+  private applyRiverSegmentStyles(): void {
+    this.riverSegmentGraphics.forEach((entry) => {
+      const isHovered = entry.riverSegment.id === this.hoveredRiverSegmentId
+      const fillColor = isHovered ? 0x5f9fdd : 0x000000
+      const strokeColor = isHovered ? 0x9fc2f0 : 0x000000
+      const alpha = isHovered ? 0.85 : 0
+      const strokeAlpha = isHovered ? 0.85 : 0
+      const strokeWidth = isHovered ? 1.2 : 1
+
+      entry.graphic.clear()
+      this.drawPolygonToGraphic(
+        entry.graphic,
+        entry.riverSegment.polygon,
+        fillColor,
+        strokeColor,
+        alpha,
+        strokeWidth,
+        strokeAlpha,
+      )
+    })
+  }
+
   private drawPolygon(
-    polygon: County['polygon'] | SeaZone['polygon'],
+    polygon: Point[],
     fillColor: number,
     strokeColor: number,
     alpha: number,
@@ -542,15 +651,17 @@ export class PixiMap {
 
   private drawPolygonToGraphic(
     graphic: Graphics,
-    polygon: County['polygon'] | SeaZone['polygon'],
+    polygon: Point[],
     fillColor: number,
     strokeColor: number,
     alpha: number,
+    strokeWidth = 1,
+    strokeAlpha = 0.9,
   ): void {
     const points = polygonToFlatArray(polygon)
     graphic.poly(points, true)
     graphic.fill({ color: fillColor, alpha })
-    graphic.stroke({ color: strokeColor, width: 1, alpha: 0.9 })
+    graphic.stroke({ color: strokeColor, width: strokeWidth, alpha: strokeAlpha })
   }
 
   private seaZoneLayerColor(layer: number, debugMode: boolean): number {

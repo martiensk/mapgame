@@ -159,11 +159,16 @@ describe('generateWorld', () => {
 
   it('composes temperatures from base, global modifier, and biome modifier', () => {
     const world = generateWorld('temperature-range-check', DEFAULT_WORLD_CONFIG)
+    const riverCountyIds = new Set(world.rivers.flatMap((river) => river.countyPath))
 
     world.counties.forEach((county) => {
       expect(county.biomeId).toBe('plains')
       expect(county.temperatureGlobalModifier).toBe(0)
-      expect(county.temperatureBiomeModifier).toBe(0)
+      expect(county.temperatureBiomeModifier).toBe(
+        riverCountyIds.has(county.id)
+          ? -DEFAULT_WORLD_CONFIG.riverCountyTemperatureCooling
+          : 0,
+      )
       const unclampedTemperature =
         county.temperatureBase +
         county.temperatureGlobalModifier +
@@ -206,6 +211,33 @@ describe('generateWorld', () => {
       } else {
         expect(seaZone.biomeId).toBe('ocean')
       }
+    })
+  })
+
+  it('applies configurable river cooling once per county in a river path', () => {
+    const cooledWorld = generateWorld('river-cooling-check', DEFAULT_WORLD_CONFIG)
+    const uncooledWorld = generateWorld('river-cooling-check', {
+      ...DEFAULT_WORLD_CONFIG,
+      riverCountyTemperatureCooling: 0,
+    })
+    const cooledCountiesById = new Map(
+      cooledWorld.counties.map((county) => [county.id, county]),
+    )
+    const riverCountyIds = new Set(cooledWorld.rivers.flatMap((river) => river.countyPath))
+
+    uncooledWorld.counties.forEach((county) => {
+      const cooledCounty = cooledCountiesById.get(county.id)
+      expect(cooledCounty).toBeDefined()
+      if (!cooledCounty) {
+        return
+      }
+
+      const expectedDelta = riverCountyIds.has(county.id)
+        ? DEFAULT_WORLD_CONFIG.riverCountyTemperatureCooling
+        : 0
+
+      expect(county.temperature - cooledCounty.temperature).toBeCloseTo(expectedDelta)
+      expect(cooledCounty.temperatureBiomeModifier).toBeCloseTo(-expectedDelta)
     })
   })
 
