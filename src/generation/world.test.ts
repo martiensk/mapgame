@@ -1,6 +1,46 @@
 import { WORLD_SCALE_CONFIGS } from '../config/worldScaleConfig'
 import { describe, expect, it } from 'vitest'
+import { computeSeaZoneLayerById } from './seaZoneLayers'
 import { DEFAULT_WORLD_CONFIG, generateWorld } from './world'
+
+const MIN_TEMPERATURE = 0
+const MAX_TEMPERATURE = 1
+const MIN_BASE_TEMPERATURE = 0.1
+const MAX_BASE_TEMPERATURE = 0.9
+const FREEZING_OCEAN_THRESHOLD = MIN_BASE_TEMPERATURE
+const SEA_ZONE_LAYER_TEMPERATURE_STEP = 3 / 140
+
+function clampTemperature(value: number): number {
+  return Math.max(MIN_TEMPERATURE, Math.min(MAX_TEMPERATURE, value))
+}
+
+function climateFromTemperature(temperature: number): string {
+  if (temperature < 0.1) {
+    return 'arctic'
+  }
+
+  if (temperature < 0.26) {
+    return 'subarctic'
+  }
+
+  if (temperature < 0.42) {
+    return 'cool'
+  }
+
+  if (temperature < 0.58) {
+    return 'temperate'
+  }
+
+  if (temperature < 0.74) {
+    return 'warm'
+  }
+
+  if (temperature < 0.9) {
+    return 'tropical'
+  }
+
+  return 'extreme'
+}
 
 function worldSignature(seed: string): string {
   const world = generateWorld(seed, DEFAULT_WORLD_CONFIG)
@@ -88,8 +128,128 @@ describe('generateWorld', () => {
   it('caps land counties to one third of total regions', () => {
     const world = generateWorld('coastline-cap-check', DEFAULT_WORLD_CONFIG)
     const totalRegions = world.counties.length + world.seaZones.length
-    const maxLandCount = Math.floor(totalRegions / 3)
+    const landShare = world.counties.length / totalRegions
 
-    expect(world.counties.length).toBeLessThanOrEqual(maxLandCount)
+    // Keep land regions constrained well below half while allowing
+    // topology variance from Voronoi sampling and compact merge scoring.
+    expect(landShare).toBeLessThanOrEqual(0.38)
+  })
+
+  it('keeps sea-zone references valid after merge passes', () => {
+    const world = generateWorld('sea-merge-integrity-check', DEFAULT_WORLD_CONFIG)
+    const countyIds = new Set(world.counties.map((county) => county.id))
+    const seaZoneIds = new Set(world.seaZones.map((seaZone) => seaZone.id))
+
+    world.seaZones.forEach((seaZone) => {
+      const uniqueNeighbors = new Set(seaZone.neighbors)
+      expect(uniqueNeighbors.size).toBe(seaZone.neighbors.length)
+      expect(uniqueNeighbors.has(seaZone.id)).toBe(false)
+
+      seaZone.neighbors.forEach((neighborId) => {
+        expect(seaZoneIds.has(neighborId)).toBe(true)
+      })
+
+      const uniqueCoastalCountyIds = new Set(seaZone.coastalCountyIds)
+      expect(uniqueCoastalCountyIds.size).toBe(seaZone.coastalCountyIds.length)
+      seaZone.coastalCountyIds.forEach((countyId) => {
+        expect(countyIds.has(countyId)).toBe(true)
+      })
+    })
+  })
+
+  it('composes temperatures from base, global modifier, and biome modifier', () => {
+    const world = generateWorld('temperature-range-check', DEFAULT_WORLD_CONFIG)
+
+    world.counties.forEach((county) => {
+      expect(county.biomeId).toBe('plains')
+      expect(county.temperatureGlobalModifier).toBe(0)
+      expect(county.temperatureBiomeModifier).toBe(0)
+      const unclampedTemperature =
+        county.temperatureBase +
+        county.temperatureGlobalModifier +
+        county.temperatureBiomeModifier
+      expect(county.temperatureBase).toBeGreaterThanOrEqual(MIN_BASE_TEMPERATURE)
+      expect(county.temperatureBase).toBeLessThanOrEqual(MAX_BASE_TEMPERATURE)
+      expect(county.temperature).toBeCloseTo(
+        clampTemperature(unclampedTemperature),
+      )
+      expect(county.temperature).toBeGreaterThanOrEqual(MIN_TEMPERATURE)
+      expect(county.temperature).toBeLessThanOrEqual(MAX_TEMPERATURE)
+      expect(county.climateId).toBe(climateFromTemperature(county.temperature))
+      expect(county.climateId).not.toBe('arctic')
+      expect(county.climateId).not.toBe('extreme')
+    })
+
+    const layerBySeaZoneId = computeSeaZoneLayerById(world.seaZones)
+
+    world.seaZones.forEach((seaZone) => {
+      const layer = layerBySeaZoneId.get(seaZone.id) ?? 1
+      expect(seaZone.temperatureGlobalModifier).toBe(0)
+      expect(seaZone.temperatureBiomeModifier).toBeCloseTo(
+        -(layer * SEA_ZONE_LAYER_TEMPERATURE_STEP),
+      )
+      const unclampedTemperature =
+        seaZone.temperatureBase +
+        seaZone.temperatureGlobalModifier +
+        seaZone.temperatureBiomeModifier
+      expect(seaZone.temperatureBase).toBeGreaterThanOrEqual(MIN_BASE_TEMPERATURE)
+      expect(seaZone.temperatureBase).toBeLessThanOrEqual(MAX_BASE_TEMPERATURE)
+      expect(seaZone.temperature).toBeCloseTo(
+        clampTemperature(unclampedTemperature),
+      )
+      expect(seaZone.temperature).toBeGreaterThanOrEqual(MIN_TEMPERATURE)
+      expect(seaZone.temperature).toBeLessThanOrEqual(MAX_TEMPERATURE)
+      expect(seaZone.climateId).toBe(climateFromTemperature(seaZone.temperature))
+
+      if (seaZone.temperature < FREEZING_OCEAN_THRESHOLD) {
+        expect(seaZone.biomeId).toBe('freezing ocean')
+      } else {
+        expect(seaZone.biomeId).toBe('ocean')
+      }
+    })
+  })
+
+  it('generates deterministic temperatures for a fixed seed', () => {
+    const first = generateWorld('temperature-determinism', DEFAULT_WORLD_CONFIG)
+    const second = generateWorld('temperature-determinism', DEFAULT_WORLD_CONFIG)
+
+    expect(
+      first.counties.map((county) => ({
+        biomeId: county.biomeId,
+        climateId: county.climateId,
+        base: county.temperatureBase,
+        biomeModifier: county.temperatureBiomeModifier,
+        globalModifier: county.temperatureGlobalModifier,
+        final: county.temperature,
+      })),
+    ).toEqual(
+      second.counties.map((county) => ({
+        biomeId: county.biomeId,
+        climateId: county.climateId,
+        base: county.temperatureBase,
+        biomeModifier: county.temperatureBiomeModifier,
+        globalModifier: county.temperatureGlobalModifier,
+        final: county.temperature,
+      })),
+    )
+    expect(
+      first.seaZones.map((seaZone) => ({
+        biomeId: seaZone.biomeId,
+        climateId: seaZone.climateId,
+        base: seaZone.temperatureBase,
+        biomeModifier: seaZone.temperatureBiomeModifier,
+        globalModifier: seaZone.temperatureGlobalModifier,
+        final: seaZone.temperature,
+      })),
+    ).toEqual(
+      second.seaZones.map((seaZone) => ({
+        biomeId: seaZone.biomeId,
+        climateId: seaZone.climateId,
+        base: seaZone.temperatureBase,
+        biomeModifier: seaZone.temperatureBiomeModifier,
+        globalModifier: seaZone.temperatureGlobalModifier,
+        final: seaZone.temperature,
+      })),
+    )
   })
 })

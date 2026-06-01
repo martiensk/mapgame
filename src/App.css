@@ -1,35 +1,82 @@
 .layout {
+  --header-height: 58px;
   position: relative;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
 }
 
-.menu-toggle {
-  position: absolute;
-  top: 14px;
-  z-index: 20;
-  left: 14px;
+.site-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-height);
+  z-index: 30;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: linear-gradient(185deg, rgba(26, 44, 46, 0.96) 0%, rgba(15, 27, 29, 0.96) 100%);
+  border-bottom: 1px solid #2e4a45;
+}
+
+.hamburger-toggle {
   border: 1px solid #3f6455;
   background: rgba(11, 23, 24, 0.9);
   color: #d4e8df;
   border-radius: 8px;
   font-weight: 600;
-  padding: 8px 12px;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
   cursor: pointer;
-  transition: left 0.25s ease;
 }
 
-.layout:not(.menu-collapsed) .menu-toggle {
-  left: 354px;
+.site-title {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: 0.03em;
+  color: #e7f6ef;
+}
+
+.header-mode-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #cde4da;
+  font-size: 0.84rem;
+}
+
+.header-mode-select {
+  background: #0a1213;
+  border: 1px solid #2d4d47;
+  color: #d4e8df;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.84rem;
+}
+
+.header-generate {
+  border: 1px solid #5b9271;
+  background: #83c37e;
+  color: #0d1a14;
+  border-radius: 8px;
+  font-weight: 600;
+  padding: 9px 12px;
+  cursor: pointer;
 }
 
 .panel {
   position: absolute;
-  top: 0;
+  top: var(--header-height);
   left: 0;
   width: 340px;
-  height: 100%;
+  height: calc(100% - var(--header-height));
   z-index: 10;
   background: linear-gradient(185deg, #1a2c2e 0%, #0f1b1d 100%);
   color: #d4e8df;
@@ -54,6 +101,12 @@
   letter-spacing: 0.03em;
 }
 
+.panel h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  letter-spacing: 0.03em;
+}
+
 .subtitle {
   margin: 0;
   color: #9fc2b5;
@@ -69,7 +122,7 @@
 
 .seed-row {
   display: flex;
-  gap: 8px;
+  gap: 0;
 }
 
 .seed-row input {
@@ -79,16 +132,6 @@
   color: #d4e8df;
   border-radius: 8px;
   padding: 10px 12px;
-}
-
-.seed-row button {
-  border: 1px solid #5b9271;
-  background: #83c37e;
-  color: #0d1a14;
-  border-radius: 8px;
-  font-weight: 600;
-  padding: 10px 12px;
-  cursor: pointer;
 }
 
 .stats {
@@ -176,6 +219,7 @@
 .map-area {
   position: absolute;
   inset: 0;
+  top: var(--header-height);
   background: radial-gradient(circle at 15% 15%, #152b49, #0a1427 75%);
   overflow: hidden;
 }
@@ -186,16 +230,76 @@
   display: block;
 }
 
+.selected-county-overlay {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 25;
+  width: min(320px, calc(100vw - 32px));
+  border: 1px solid #26443f;
+  border-radius: 10px;
+  background: rgba(11, 23, 24, 0.86);
+  color: #e7f6ef;
+  padding: 12px;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+.selected-county-overlay h2 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  color: #f0faf5;
+}
+
+.selected-county-overlay p {
+  margin: 0 0 4px;
+}
+
 @media (max-width: 600px) {
+  .site-header {
+    grid-template-columns: auto 1fr auto;
+    padding: 0 10px;
+    gap: 8px;
+  }
+
+  .site-title {
+    font-size: 1rem;
+  }
+
+  .header-generate {
+    padding: 8px 10px;
+  }
+
+  .header-mode-row {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    margin-top: -4px;
+    margin-bottom: 6px;
+  }
+
+  .site-header {
+    height: calc(var(--header-height) + 30px);
+    align-content: center;
+  }
+
+  .panel,
+  .map-area {
+    top: calc(var(--header-height) + 30px);
+  }
+
+  .panel {
+    height: calc(100% - (var(--header-height) + 30px));
+  }
+
   .panel {
     width: 100%;
     border-right: none;
     border-bottom: 1px solid #2e4a45;
   }
 
-  .layout:not(.menu-collapsed) .menu-toggle {
-    left: 14px;
-    top: auto;
-    bottom: 14px;
+  .selected-county-overlay {
+    right: 10px;
+    bottom: 10px;
+    width: min(280px, calc(100vw - 20px));
   }
 }

@@ -13,6 +13,7 @@ export interface WorldMetadata {
   height: number
   countyDensity: number
   seaZoneTarget: number
+  coastMergeValidationFailures: number
   generatedAt: string
 }
 
@@ -24,6 +25,12 @@ export interface County {
   area: number
   neighbors: RegionId[]
   landMassId: RegionId
+  biomeId: string
+  climateId: string
+  temperatureBase: number
+  temperatureGlobalModifier: number
+  temperatureBiomeModifier: number
+  temperature: number
 }
 
 export interface SeaZone {
@@ -33,6 +40,12 @@ export interface SeaZone {
   area: number
   neighbors: RegionId[]
   coastalCountyIds: RegionId[]
+  biomeId: string
+  climateId: string
+  temperatureBase: number
+  temperatureGlobalModifier: number
+  temperatureBiomeModifier: number
+  temperature: number
 }
 
 export interface LandMass {
@@ -54,6 +67,9 @@ export interface WorldConfig {
   height: number
   countyDensity: number
   countyMergeReduction: number
+  voronoiPoissonSpacingFactor: number
+  voronoiLloydRelaxations: number
+  voronoiSiteMicroJitter: number
   seaZoneTarget: number
   minContinents: number
   maxContinents: number
@@ -64,4 +80,5 @@ export interface WorldConfig {
   edgeOceanMargin: number
   edgeOceanPenaltyStrength: number
   edgeSoftMargin: number
+  latitudeTemperatureGamma: number
 }

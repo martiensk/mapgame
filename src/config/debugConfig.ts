@@ -1,9 +1,11 @@
+import type { MapDisplayMode } from '../render/pixiMap'
+
 export interface DebugConfig {
   showWorldBorder: boolean
-  showSeaZoneLayers: boolean
+  defaultMapDisplayMode: MapDisplayMode
 }
 
 export const DEBUG_CONFIG: DebugConfig = {
   showWorldBorder: true,
-  showSeaZoneLayers: false,
+  defaultMapDisplayMode: 'landscape',
 }

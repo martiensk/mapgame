@@ -1,8 +1,10 @@
 import { DEFAULT_MAP_SIZE, WORLD_SCALE_CONFIGS } from '../config/worldScaleConfig'
+import temperatureMapper from '../data/temperatureMapper.json'
 import type { County, SeaZone, WorldConfig, WorldData } from '../types/world'
 import { generateCounties, mergeCountiesPhase } from './counties'
 import { generateLandMassShapes, toLandMassRecords } from './landmass'
 import { createSeededRandom } from './random'
+import { computeSeaZoneLayerById } from './seaZoneLayers'
 import { generateSeaZones, mergeCoastalSeaZonesPhase } from './seazones'
 import { generateVoronoiWorld } from './voronoi'
 
@@ -12,6 +14,138 @@ export const DEFAULT_WORLD_CONFIG: WorldConfig = {
 
 function unique(values: string[]): string[] {
   return [...new Set(values)]
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+const PLAINS_BIOME_ID = 'plains'
+const OCEAN_BIOME_ID = 'ocean'
+const FREEZING_OCEAN_BIOME_ID = 'freezing ocean'
+const GLOBAL_TEMPERATURE_MODIFIER = 0
+const MIN_TEMPERATURE = 0
+const MAX_TEMPERATURE = 1
+const BASE_TEMPERATURE_EDGE_EPSILON = 1e-6
+const MIN_BASE_TEMPERATURE = 0.1 + BASE_TEMPERATURE_EDGE_EPSILON
+const MAX_BASE_TEMPERATURE = 0.9 - BASE_TEMPERATURE_EDGE_EPSILON
+const FREEZING_OCEAN_THRESHOLD = MIN_BASE_TEMPERATURE
+const SEA_ZONE_LAYER_TEMPERATURE_STEP = 3 / 140
+
+interface TemperatureMapperRange {
+  min: number
+  max: number
+  climateId: string
+}
+
+interface TemperatureMapperDocument {
+  ranges: TemperatureMapperRange[]
+}
+
+const climateRanges = (temperatureMapper as TemperatureMapperDocument).ranges
+
+function temperatureFromY(
+  y: number,
+  worldHeight: number,
+  latitudeTemperatureGamma: number,
+): number {
+  if (worldHeight <= 0) {
+    return MIN_BASE_TEMPERATURE
+  }
+
+  const halfHeight = worldHeight / 2
+  if (halfHeight <= 0) {
+    return MIN_BASE_TEMPERATURE
+  }
+
+  const normalizedDistanceFromEquator = Math.abs(y - halfHeight) / halfHeight
+  const normalizedHeat = 1 - clamp(normalizedDistanceFromEquator, 0, 1)
+  const safeGamma = Math.max(0.1, latitudeTemperatureGamma)
+  const curvedHeat = Math.pow(normalizedHeat, safeGamma)
+  const baseRange = MAX_BASE_TEMPERATURE - MIN_BASE_TEMPERATURE
+  return MIN_BASE_TEMPERATURE + curvedHeat * baseRange
+}
+
+function composeTemperature(
+  base: number,
+  globalModifier: number,
+  biomeModifier: number,
+): number {
+  return clamp(base + globalModifier + biomeModifier, MIN_TEMPERATURE, MAX_TEMPERATURE)
+}
+
+function climateFromTemperature(temperature: number): string {
+  for (let index = 0; index < climateRanges.length; index += 1) {
+    const range = climateRanges[index]
+    const isLastRange = index === climateRanges.length - 1
+    const insideRange =
+      temperature >= range.min &&
+      (isLastRange ? temperature <= range.max : temperature < range.max)
+
+    if (insideRange) {
+      return range.climateId
+    }
+  }
+
+  if (temperature < MIN_TEMPERATURE) {
+    return climateRanges[0]?.climateId ?? 'arctic'
+  }
+
+  return climateRanges[climateRanges.length - 1]?.climateId ?? 'extreme'
+}
+
+function assignRegionTemperatures(world: {
+  metadata: Pick<WorldData['metadata'], 'height'>
+  config: Pick<WorldConfig, 'latitudeTemperatureGamma'>
+  counties: County[]
+  seaZones: SeaZone[]
+}): void {
+  const { height } = world.metadata
+  const { latitudeTemperatureGamma } = world.config
+  const layerBySeaZoneId = computeSeaZoneLayerById(world.seaZones)
+
+  world.counties.forEach((county) => {
+    const base = temperatureFromY(
+      county.centroid.y,
+      height,
+      latitudeTemperatureGamma,
+    )
+    const biomeModifier = 0
+    county.biomeId = PLAINS_BIOME_ID
+    county.temperatureBase = base
+    county.temperatureGlobalModifier = GLOBAL_TEMPERATURE_MODIFIER
+    county.temperatureBiomeModifier = biomeModifier
+    county.temperature = composeTemperature(
+      base,
+      county.temperatureGlobalModifier,
+      county.temperatureBiomeModifier,
+    )
+    county.climateId = climateFromTemperature(county.temperature)
+  })
+
+  world.seaZones.forEach((seaZone) => {
+    const base = temperatureFromY(
+      seaZone.centroid.y,
+      height,
+      latitudeTemperatureGamma,
+    )
+    const layer = layerBySeaZoneId.get(seaZone.id) ?? 1
+    const biomeModifier = -(layer * SEA_ZONE_LAYER_TEMPERATURE_STEP)
+    seaZone.biomeId = OCEAN_BIOME_ID
+    seaZone.temperatureBase = base
+    seaZone.temperatureGlobalModifier = GLOBAL_TEMPERATURE_MODIFIER
+    seaZone.temperatureBiomeModifier = biomeModifier
+    seaZone.temperature = composeTemperature(
+      base,
+      seaZone.temperatureGlobalModifier,
+      seaZone.temperatureBiomeModifier,
+    )
+    seaZone.climateId = climateFromTemperature(seaZone.temperature)
+
+    if (seaZone.temperature < FREEZING_OCEAN_THRESHOLD) {
+      seaZone.biomeId = FREEZING_OCEAN_BIOME_ID
+    }
+  })
 }
 
 function assignCountyNeighbors(
@@ -120,10 +254,17 @@ export function generateWorld(
     countyResult.countyIdByCellId,
     neighborCellIdsById,
   )
-  mergeCoastalSeaZonesPhase(
+  const seaZoneMergeDiagnostics = mergeCoastalSeaZonesPhase(
     { seaZones, seaZoneIdByCellId, cellIdBySeaZoneId },
     random,
   )
+
+  assignRegionTemperatures({
+    metadata: { height: config.height },
+    config: { latitudeTemperatureGamma: config.latitudeTemperatureGamma },
+    counties: countyResult.counties,
+    seaZones,
+  })
 
   return {
     metadata: {
@@ -132,6 +273,9 @@ export function generateWorld(
       height: config.height,
       countyDensity: config.countyDensity,
       seaZoneTarget: config.seaZoneTarget,
+      coastMergeValidationFailures:
+        seaZoneMergeDiagnostics.disconnectedMergeRejects +
+        seaZoneMergeDiagnostics.areaCoverageRejects,
       generatedAt: new Date().toISOString(),
     },
     counties: countyResult.counties,

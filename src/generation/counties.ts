@@ -1,5 +1,5 @@
 import type { County, WorldConfig } from '../types/world'
-import { polygonArea, polygonCentroid } from '../geometry/polygon'
+import { distanceBetween, polygonArea, polygonCentroid } from '../geometry/polygon'
 import { mergeAdjacentPolygons } from '../geometry/polygon'
 import { getLandMassIdAtPoint, type LandMassShape } from './landmass'
 import type { SeededRandom } from './random'
@@ -25,6 +25,38 @@ function shuffleInPlace<T>(values: T[], random: SeededRandom): void {
   }
 }
 
+function polygonPerimeter(polygon: Array<{ x: number; y: number }>): number {
+  if (polygon.length < 2) {
+    return 0
+  }
+
+  let perimeter = 0
+  for (let index = 0; index < polygon.length; index += 1) {
+    const current = polygon[index]
+    const next = polygon[(index + 1) % polygon.length]
+    perimeter += Math.hypot(next.x - current.x, next.y - current.y)
+  }
+
+  return perimeter
+}
+
+function shapeCompactness(area: number, perimeter: number): number {
+  if (area <= 0 || perimeter <= 0) {
+    return 0
+  }
+
+  return (4 * Math.PI * area) / (perimeter * perimeter)
+}
+
+function safeAreaRatio(a: number, b: number): number {
+  const maxArea = Math.max(a, b)
+  if (maxArea <= 0) {
+    return 0
+  }
+
+  return Math.min(a, b) / maxArea
+}
+
 export function mergeCountiesPhase(
   result: CountyGenerationResult,
   config: WorldConfig,
@@ -39,16 +71,24 @@ export function mergeCountiesPhase(
 
   const countyById = new Map(result.counties.map((county) => [county.id, county]))
   const cellsForCounty = new Map<string, Set<string>>()
-  const minimumSharedEdgeLength =
-    Math.min(config.width, config.height) * 0.0015
-  const mergedSurvivorCountyIds = new Set<string>()
+  const minimumSharedEdgeLength = Math.min(config.width, config.height) * 0.001
 
-  const tryMergeCounties = (survivorId: string, absorbedId: string): boolean => {
+  interface MergeCandidate {
+    survivorId: string
+    absorbedId: string
+    mergedPolygon: County['polygon']
+    mergedArea: number
+    mergedCentroid: County['centroid']
+    mergedNeighbors: string[]
+    score: number
+  }
+
+  const evaluateMergeCandidate = (survivorId: string, absorbedId: string): MergeCandidate | null => {
     const countyA = countyById.get(survivorId)
     const countyB = countyById.get(absorbedId)
 
     if (!countyA || !countyB || countyA.id === countyB.id) {
-      return false
+      return null
     }
 
     const mergedPolygon = mergeAdjacentPolygons(
@@ -58,17 +98,93 @@ export function mergeCountiesPhase(
     )
 
     if (!mergedPolygon) {
-      return false
+      return null
     }
 
-    countyA.polygon = mergedPolygon
-    countyA.area = polygonArea(mergedPolygon)
-    countyA.centroid = polygonCentroid(mergedPolygon)
-    countyA.neighbors = unique(
+    const mergedArea = polygonArea(mergedPolygon)
+    const mergedCentroid = polygonCentroid(mergedPolygon)
+    const mergedNeighbors = unique(
       [...countyA.neighbors, ...countyB.neighbors].filter(
         (id) => id !== countyA.id && id !== countyB.id,
       ),
     )
+
+    const perimeterA = polygonPerimeter(countyA.polygon)
+    const perimeterB = polygonPerimeter(countyB.polygon)
+    const mergedPerimeter = polygonPerimeter(mergedPolygon)
+    const compactnessA = shapeCompactness(countyA.area, perimeterA)
+    const compactnessB = shapeCompactness(countyB.area, perimeterB)
+    const mergedCompactness = shapeCompactness(mergedArea, mergedPerimeter)
+    const weightedInputCompactness =
+      (compactnessA * countyA.area + compactnessB * countyB.area) /
+      Math.max(1e-6, countyA.area + countyB.area)
+    const compactnessGain = mergedCompactness - weightedInputCompactness
+
+    const sharedEdgeLength = Math.max(
+      0,
+      (perimeterA + perimeterB - mergedPerimeter) * 0.5,
+    )
+    const sharedEdgeNormalized = sharedEdgeLength / Math.max(1e-6, Math.sqrt(mergedArea))
+
+    const centroidDistance = distanceBetween(countyA.centroid, countyB.centroid)
+    const centroidDistanceNormalized = centroidDistance / Math.max(1e-6, Math.sqrt(mergedArea))
+
+    const areaBalance = safeAreaRatio(countyA.area, countyB.area)
+    const mergeScore =
+      mergedCompactness * 3.2 +
+      compactnessGain * 2.6 +
+      sharedEdgeNormalized * 0.9 +
+      areaBalance * 0.8 -
+      centroidDistanceNormalized * 0.85
+
+    return {
+      survivorId,
+      absorbedId,
+      mergedPolygon,
+      mergedArea,
+      mergedCentroid,
+      mergedNeighbors,
+      score: mergeScore,
+    }
+  }
+
+  const findBestNeighborMerge = (survivorId: string): MergeCandidate | null => {
+    const county = countyById.get(survivorId)
+    if (!county) {
+      return null
+    }
+
+    const neighborIds = county.neighbors
+      .filter((neighborId) => countyById.has(neighborId))
+      .sort((left, right) => left.localeCompare(right))
+
+    let best: MergeCandidate | null = null
+    for (let index = 0; index < neighborIds.length; index += 1) {
+      const candidate = evaluateMergeCandidate(survivorId, neighborIds[index])
+      if (!candidate) {
+        continue
+      }
+
+      if (!best || candidate.score > best.score) {
+        best = candidate
+      }
+    }
+
+    return best
+  }
+
+  const applyMerge = (candidate: MergeCandidate): boolean => {
+    const countyA = countyById.get(candidate.survivorId)
+    const countyB = countyById.get(candidate.absorbedId)
+
+    if (!countyA || !countyB || countyA.id === countyB.id) {
+      return false
+    }
+
+    countyA.polygon = candidate.mergedPolygon
+    countyA.area = candidate.mergedArea
+    countyA.centroid = candidate.mergedCentroid
+    countyA.neighbors = candidate.mergedNeighbors
 
     countyById.forEach((county) => {
       if (county.id === countyA.id || county.id === countyB.id) {
@@ -107,7 +223,6 @@ export function mergeCountiesPhase(
 
     result.cellIdByCountyId.delete(countyB.id)
     countyById.delete(countyB.id)
-    mergedSurvivorCountyIds.add(countyA.id)
     return true
   }
 
@@ -120,70 +235,30 @@ export function mergeCountiesPhase(
     cellsForCounty.set(county.id, coveredCellIds)
   })
 
-  const candidates = result.counties.map((county) => county.id)
-  shuffleInPlace(candidates, random)
-
-  let candidateIndex = 0
   while (countyById.size > target) {
-    if (candidateIndex >= candidates.length) {
+    const candidateCountyIds = [...countyById.keys()]
+    shuffleInPlace(candidateCountyIds, random)
+    let mergedInRound = false
+
+    for (let index = 0; index < candidateCountyIds.length; index += 1) {
+      if (countyById.size <= target) {
+        break
+      }
+
+      const bestMerge = findBestNeighborMerge(candidateCountyIds[index])
+      if (!bestMerge) {
+        continue
+      }
+
+      if (applyMerge(bestMerge)) {
+        mergedInRound = true
+      }
+    }
+
+    if (!mergedInRound) {
       break
     }
-
-    const candidateId = candidates[candidateIndex]
-    candidateIndex += 1
-
-    const countyA = countyById.get(candidateId)
-    if (!countyA) {
-      continue
-    }
-
-    const landNeighbors = countyA.neighbors.filter((neighborId) => countyById.has(neighborId))
-    if (landNeighbors.length === 0) {
-      continue
-    }
-
-    shuffleInPlace(landNeighbors, random)
-
-    let merged = false
-    for (let index = 0; index < landNeighbors.length; index += 1) {
-      const neighborId = landNeighbors[index]
-      if (tryMergeCounties(countyA.id, neighborId)) {
-        merged = true
-        break
-      }
-    }
-
-    if (!merged) {
-      continue
-    }
   }
-
-  const mergedSurvivorCandidates = [...mergedSurvivorCountyIds].filter((countyId) =>
-    countyById.has(countyId),
-  )
-  shuffleInPlace(mergedSurvivorCandidates, random)
-
-  const boostedCountyCount = Math.floor(mergedSurvivorCandidates.length * 0.3)
-  const boostedCountyIds = mergedSurvivorCandidates.slice(0, boostedCountyCount)
-
-  boostedCountyIds.forEach((countyId) => {
-    const county = countyById.get(countyId)
-    if (!county) {
-      return
-    }
-
-    const landNeighbors = county.neighbors.filter((neighborId) => countyById.has(neighborId))
-    if (landNeighbors.length === 0) {
-      return
-    }
-
-    shuffleInPlace(landNeighbors, random)
-    for (let index = 0; index < landNeighbors.length; index += 1) {
-      if (tryMergeCounties(county.id, landNeighbors[index])) {
-        break
-      }
-    }
-  })
 
   result.counties = [...countyById.values()]
 }
@@ -409,6 +484,12 @@ export function generateCounties(
       area: cell.area,
       neighbors: [],
       landMassId,
+      biomeId: 'plains',
+      climateId: 'temperate',
+      temperatureBase: 0,
+      temperatureGlobalModifier: 0,
+      temperatureBiomeModifier: 0,
+      temperature: 0,
     })
 
     countyIdsByLandMass.get(landMassId)?.push(id)

@@ -1,22 +1,44 @@
 import { Application, Container, Graphics, Text } from 'pixi.js'
 import { CAMERA_CONFIG } from '../config/cameraConfig'
+import { computeSeaZoneLayerById } from '../generation/seaZoneLayers'
 import { polygonToFlatArray } from '../geometry/polygon'
 import { CameraController } from '../input/cameraController'
 import {
-  bindCountyInteraction,
+  bindRegionInteraction,
   type RegionInteractionCallbacks,
 } from '../input/regionInteraction'
-import type { County, SeaZone, WorldData } from '../types/world'
+import type { County, Point, SeaZone, WorldData } from '../types/world'
 
 interface CountyGraphicEntry {
   county: County
   graphic: Graphics
 }
 
+interface SeaZoneGraphicEntry {
+  seaZone: SeaZone
+  graphic: Graphics
+  baseFillColor: number
+}
+
 export interface PixiMapCallbacks {
   onHoverCounty?: (county: County | null) => void
+  onHoverSeaZone?: (seaZone: SeaZone | null) => void
   onSelectCounty?: (county: County) => void
+  onArtifactDetected?: (report: CoastArtifactReport) => void
 }
+
+export interface CoastArtifactReport {
+  detected: boolean
+  sampledPixelCount: number
+  darkPixelCount: number
+  sharedEdgeCount: number
+}
+
+export type MapDisplayMode =
+  | 'landscape'
+  | 'sea-zone'
+  | 'temperature'
+  | 'climate'
 
 export class PixiMap {
   private readonly host: HTMLElement
@@ -26,13 +48,15 @@ export class PixiMap {
   private cameraController: CameraController | null = null
   private world: WorldData | null = null
   private countyGraphics = new Map<string, CountyGraphicEntry>()
+  private seaZoneGraphics = new Map<string, SeaZoneGraphicEntry>()
   private disposeInteractions: Array<() => void> = []
   private selectedCountyId = ''
   private hoveredCountyId = ''
+  private hoveredSeaZoneId = ''
   private isDestroyed = false
   private mountNonce = 0
   private showWorldBorder = false
-  private showSeaZoneLayers = false
+  private displayMode: MapDisplayMode = 'landscape'
 
   constructor(host: HTMLElement, callbacks: PixiMapCallbacks = {}) {
     this.host = host
@@ -93,6 +117,9 @@ export class PixiMap {
     })
     this.selectedCountyId = ''
     this.hoveredCountyId = ''
+    this.hoveredSeaZoneId = ''
+    this.callbacks.onHoverCounty?.(null)
+    this.callbacks.onHoverSeaZone?.(null)
     this.renderWorld()
   }
 
@@ -105,12 +132,12 @@ export class PixiMap {
     this.renderWorld()
   }
 
-  public setShowSeaZoneLayers(show: boolean): void {
-    if (this.showSeaZoneLayers === show) {
+  public setDisplayMode(mode: MapDisplayMode): void {
+    if (this.displayMode === mode) {
       return
     }
 
-    this.showSeaZoneLayers = show
+    this.displayMode = mode
     this.renderWorld()
   }
 
@@ -139,6 +166,7 @@ export class PixiMap {
     this.disposeInteractions.forEach((dispose) => dispose())
     this.disposeInteractions = []
     this.countyGraphics.clear()
+    this.seaZoneGraphics.clear()
     this.worldContainer.removeChildren().forEach((child) => child.destroy())
 
     if (this.showWorldBorder) {
@@ -155,15 +183,40 @@ export class PixiMap {
       this.worldContainer.addChild(borderGraphic)
     }
 
-    const layerBySeaZoneId = this.computeSeaZoneLayerById(this.world.seaZones)
+    const layerBySeaZoneId = computeSeaZoneLayerById(this.world.seaZones)
+
+    const seaZoneCallbacks: RegionInteractionCallbacks<SeaZone> = {
+      onHoverStart: (zone) => {
+        this.hoveredSeaZoneId = zone.id
+        this.hoveredCountyId = ''
+        this.callbacks.onHoverCounty?.(null)
+        this.callbacks.onHoverSeaZone?.(zone)
+        this.applyCountyStyles()
+        this.applySeaZoneStyles()
+      },
+      onHoverEnd: () => {
+        this.hoveredSeaZoneId = ''
+        this.callbacks.onHoverSeaZone?.(null)
+        this.applySeaZoneStyles()
+      },
+    }
 
     this.world.seaZones.forEach((zone) => {
       const layer = layerBySeaZoneId.get(zone.id) ?? 1
-      const fillColor = this.seaZoneLayerColor(layer, this.showSeaZoneLayers)
+      const fillColor = this.seaZoneBaseFillColor(zone, layer)
       const graphic = this.drawPolygon(zone.polygon, fillColor, 0x3f5f8f, 0.8)
+      const disposeInteraction = bindRegionInteraction(graphic, zone, seaZoneCallbacks, {
+        selectable: false,
+      })
+      this.disposeInteractions.push(disposeInteraction)
+      this.seaZoneGraphics.set(zone.id, {
+        seaZone: zone,
+        graphic,
+        baseFillColor: fillColor,
+      })
       this.worldContainer.addChild(graphic)
 
-      if (this.showSeaZoneLayers) {
+      if (this.displayMode === 'sea-zone') {
         const fontSize = Math.max(11, Math.min(18, Math.sqrt(zone.area) * 0.08))
         const label = new Text(String(layer), {
           fill: 0xffe766,
@@ -177,11 +230,14 @@ export class PixiMap {
       }
     })
 
-    const regionCallbacks: RegionInteractionCallbacks = {
+    const regionCallbacks: RegionInteractionCallbacks<County> = {
       onHoverStart: (county) => {
         this.hoveredCountyId = county.id
+        this.hoveredSeaZoneId = ''
         this.callbacks.onHoverCounty?.(county)
+        this.callbacks.onHoverSeaZone?.(null)
         this.applyCountyStyles()
+        this.applySeaZoneStyles()
       },
       onHoverEnd: () => {
         this.hoveredCountyId = ''
@@ -196,8 +252,13 @@ export class PixiMap {
     }
 
     this.world.counties.forEach((county) => {
-      const graphic = this.drawPolygon(county.polygon, 0x6a9f5a, 0x0c1a0e, 1)
-      const disposeInteraction = bindCountyInteraction(
+      const graphic = this.drawPolygon(
+        county.polygon,
+        this.countyBaseFillColor(county),
+        0x0c1a0e,
+        1,
+      )
+      const disposeInteraction = bindRegionInteraction(
         graphic,
         county,
         regionCallbacks,
@@ -209,6 +270,189 @@ export class PixiMap {
     })
 
     this.applyCountyStyles()
+    this.applySeaZoneStyles()
+    this.scheduleArtifactDetection()
+  }
+
+  private scheduleArtifactDetection(): void {
+    const app = this.app
+    const world = this.world
+    if (!app || !world || !this.callbacks.onArtifactDetected) {
+      return
+    }
+
+    requestAnimationFrame(() => {
+      if (this.isDestroyed || this.app !== app || this.world !== world) {
+        return
+      }
+
+      this.callbacks.onArtifactDetected?.(this.detectCoastArtifact())
+    })
+  }
+
+  private detectCoastArtifact(): CoastArtifactReport {
+    if (!this.app || !this.world) {
+      return {
+        detected: false,
+        sampledPixelCount: 0,
+        darkPixelCount: 0,
+        sharedEdgeCount: 0,
+      }
+    }
+
+    const sampleSet = this.collectCoastSamplePoints(this.world)
+    if (sampleSet.points.length === 0) {
+      return {
+        detected: false,
+        sampledPixelCount: 0,
+        darkPixelCount: 0,
+        sharedEdgeCount: sampleSet.sharedEdgeCount,
+      }
+    }
+
+    const extracted = this.app.renderer.extract.pixels(this.app.stage)
+    const resolution = this.app.renderer.resolution || 1
+    const maxX = extracted.width - 1
+    const maxY = extracted.height - 1
+    let darkPixelCount = 0
+
+    sampleSet.points.forEach((point) => {
+      const globalPoint = this.worldContainer.toGlobal(point)
+      const pixelX = Math.max(0, Math.min(maxX, Math.round(globalPoint.x * resolution)))
+      const pixelY = Math.max(0, Math.min(maxY, Math.round(globalPoint.y * resolution)))
+      const offset = (pixelY * extracted.width + pixelX) * 4
+      const red = extracted.pixels[offset]
+      const green = extracted.pixels[offset + 1]
+      const blue = extracted.pixels[offset + 2]
+      const alpha = extracted.pixels[offset + 3]
+
+      if (this.isSuspiciouslyDark(red, green, blue, alpha)) {
+        darkPixelCount += 1
+      }
+    })
+
+    const sampledPixelCount = sampleSet.points.length
+    const darkRatio = sampledPixelCount > 0 ? darkPixelCount / sampledPixelCount : 0
+    const detected = darkPixelCount >= 2 && darkRatio >= 0.003
+
+    return {
+      detected,
+      sampledPixelCount,
+      darkPixelCount,
+      sharedEdgeCount: sampleSet.sharedEdgeCount,
+    }
+  }
+
+  private isSuspiciouslyDark(
+    red: number,
+    green: number,
+    blue: number,
+    alpha: number,
+  ): boolean {
+    if (alpha < 200) {
+      return false
+    }
+
+    const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722
+    return luminance < 26 && Math.max(red, green, blue) < 44
+  }
+
+  private collectCoastSamplePoints(world: WorldData): {
+    points: Point[]
+    sharedEdgeCount: number
+  } {
+    const countyById = new Map(world.counties.map((county) => [county.id, county]))
+    const points: Point[] = []
+    const sampleSpacing = 3
+    const maxSamples = 1800
+    const edgeEpsilon = 1e-3
+    let sharedEdgeCount = 0
+
+    for (const seaZone of world.seaZones) {
+      if (seaZone.coastalCountyIds.length === 0) {
+        continue
+      }
+
+      for (const countyId of seaZone.coastalCountyIds) {
+        const county = countyById.get(countyId)
+        if (!county) {
+          continue
+        }
+
+        const sharedEdges = this.findSharedEdges(
+          county.polygon,
+          seaZone.polygon,
+          edgeEpsilon,
+        )
+
+        for (const edge of sharedEdges) {
+          sharedEdgeCount += 1
+          const edgeSamples = this.sampleEdge(edge.start, edge.end, sampleSpacing)
+
+          for (const samplePoint of edgeSamples) {
+            points.push(samplePoint)
+            if (points.length >= maxSamples) {
+              return { points, sharedEdgeCount }
+            }
+          }
+        }
+      }
+    }
+
+    return { points, sharedEdgeCount }
+  }
+
+  private findSharedEdges(
+    first: Point[],
+    second: Point[],
+    epsilon: number,
+  ): Array<{ start: Point; end: Point }> {
+    const sharedEdges: Array<{ start: Point; end: Point }> = []
+
+    for (let firstIndex = 0; firstIndex < first.length; firstIndex += 1) {
+      const firstNext = first[(firstIndex + 1) % first.length]
+      const firstCurrent = first[firstIndex]
+
+      for (let secondIndex = 0; secondIndex < second.length; secondIndex += 1) {
+        const secondNext = second[(secondIndex + 1) % second.length]
+        const secondCurrent = second[secondIndex]
+
+        const reversedMatch =
+          this.pointsAlmostEqual(firstCurrent, secondNext, epsilon) &&
+          this.pointsAlmostEqual(firstNext, secondCurrent, epsilon)
+
+        if (!reversedMatch) {
+          continue
+        }
+
+        sharedEdges.push({ start: firstCurrent, end: firstNext })
+      }
+    }
+
+    return sharedEdges
+  }
+
+  private pointsAlmostEqual(first: Point, second: Point, epsilon: number): boolean {
+    return (
+      Math.abs(first.x - second.x) <= epsilon &&
+      Math.abs(first.y - second.y) <= epsilon
+    )
+  }
+
+  private sampleEdge(start: Point, end: Point, spacing: number): Point[] {
+    const length = Math.hypot(end.x - start.x, end.y - start.y)
+    const sampleCount = Math.max(1, Math.floor(length / spacing))
+    const points: Point[] = []
+
+    for (let index = 0; index < sampleCount; index += 1) {
+      const t = (index + 0.5) / (sampleCount + 1)
+      points.push({
+        x: start.x + (end.x - start.x) * t,
+        y: start.y + (end.y - start.y) * t,
+      })
+    }
+
+    return points
   }
 
   private applyCountyStyles(): void {
@@ -216,25 +460,63 @@ export class PixiMap {
       const isSelected = county.id === this.selectedCountyId
       const isHovered = county.id === this.hoveredCountyId
 
-      let fillColor = 0x5f8d52
+      let fillColor = this.countyBaseFillColor(county)
       let strokeColor = 0x102112
       let alpha = 0.88
 
-      if (isHovered) {
-        fillColor = 0xa9d57a
-        strokeColor = 0x203c0e
-      }
+      if (this.displayMode === 'temperature' || this.displayMode === 'climate') {
+        if (isHovered) {
+          fillColor = this.lightenTowardWhite(fillColor, 0.18)
+          strokeColor = 0x203c0e
+        }
 
-      if (isSelected) {
-        fillColor = 0xf1cc5b
-        strokeColor = 0x2f2a0e
-        alpha = 1
+        if (isSelected) {
+          fillColor = this.lightenTowardWhite(fillColor, 0.28)
+          strokeColor = 0x2f2a0e
+          alpha = 1
+        }
+      } else {
+        if (isHovered) {
+          fillColor = 0xa9d57a
+          strokeColor = 0x203c0e
+        }
+
+        if (isSelected) {
+          fillColor = 0xf1cc5b
+          strokeColor = 0x2f2a0e
+          alpha = 1
+        }
       }
 
       graphic.clear()
       this.drawPolygonToGraphic(
         graphic,
         county.polygon,
+        fillColor,
+        strokeColor,
+        alpha,
+      )
+    })
+  }
+
+  private applySeaZoneStyles(): void {
+    this.seaZoneGraphics.forEach(({ seaZone, graphic, baseFillColor }) => {
+      const isHovered = seaZone.id === this.hoveredSeaZoneId
+
+      let fillColor = baseFillColor
+      let strokeColor = 0x3f5f8f
+      let alpha = 0.8
+
+      if (isHovered) {
+        fillColor = this.lightenTowardWhite(baseFillColor, 0.1)
+        strokeColor = this.lightenTowardWhite(0x3f5f8f, 0.1)
+        alpha = 0.88
+      }
+
+      graphic.clear()
+      this.drawPolygonToGraphic(
+        graphic,
+        seaZone.polygon,
         fillColor,
         strokeColor,
         alpha,
@@ -266,78 +548,6 @@ export class PixiMap {
     graphic.stroke({ color: strokeColor, width: 1, alpha: 0.9 })
   }
 
-  private computeSeaZoneLayerById(seaZones: SeaZone[]): Map<string, number> {
-    const maxDisplayLayer = 9
-    const byId = new Map(seaZones.map((zone) => [zone.id, zone]))
-    const layerById = new Map<string, number>()
-    const queue: string[] = []
-
-    seaZones.forEach((zone) => {
-      if (zone.coastalCountyIds.length > 0) {
-        layerById.set(zone.id, 1)
-        queue.push(zone.id)
-      }
-    })
-
-    let queueIndex = 0
-    while (queueIndex < queue.length) {
-      const currentId = queue[queueIndex]
-      queueIndex += 1
-
-      const current = byId.get(currentId)
-      const currentLayer = layerById.get(currentId)
-      if (!current || !currentLayer) {
-        continue
-      }
-
-      current.neighbors.forEach((neighborId) => {
-        if (!byId.has(neighborId) || layerById.has(neighborId)) {
-          return
-        }
-
-        layerById.set(neighborId, Math.min(maxDisplayLayer, currentLayer + 1))
-        queue.push(neighborId)
-      })
-    }
-
-    // Some ocean components can become disconnected from coastal BFS seeds.
-    // Instead of forcing those zones to deepest depth (which creates isolated
-    // dark artifacts), inherit the nearest existing zone layer by centroid.
-    const assigned = seaZones
-      .map((zone) => ({ zone, layer: layerById.get(zone.id) }))
-      .filter((entry): entry is { zone: SeaZone; layer: number } =>
-        entry.layer !== undefined,
-      )
-
-    seaZones.forEach((zone) => {
-      if (layerById.has(zone.id)) {
-        return
-      }
-
-      if (assigned.length === 0) {
-        layerById.set(zone.id, 1)
-        return
-      }
-
-      let nearestLayer = 1
-      let nearestDistanceSq = Number.POSITIVE_INFINITY
-      assigned.forEach(({ zone: candidate, layer }) => {
-        const dx = candidate.centroid.x - zone.centroid.x
-        const dy = candidate.centroid.y - zone.centroid.y
-        const distanceSq = dx * dx + dy * dy
-
-        if (distanceSq < nearestDistanceSq) {
-          nearestDistanceSq = distanceSq
-          nearestLayer = layer
-        }
-      })
-
-      layerById.set(zone.id, Math.min(maxDisplayLayer, Math.max(1, nearestLayer)))
-    })
-
-    return layerById
-  }
-
   private seaZoneLayerColor(layer: number, debugMode: boolean): number {
     const layerIndex = Math.max(0, layer - 1)
 
@@ -367,5 +577,96 @@ export class PixiMap {
 
     const palette = debugMode ? debugPalette : normalPalette
     return palette[Math.min(palette.length - 1, layerIndex)]
+  }
+
+  private seaZoneBaseFillColor(zone: SeaZone, layer: number): number {
+    if (this.displayMode === 'temperature') {
+      return this.applyTemperatureOverlay(this.seaZoneLayerColor(layer, false), zone.temperature)
+    }
+
+    if (this.displayMode === 'sea-zone') {
+      return this.seaZoneLayerColor(layer, true)
+    }
+
+    return this.seaZoneLayerColor(layer, false)
+  }
+
+  private countyBaseFillColor(county: County): number {
+    if (this.displayMode === 'climate') {
+      return this.climateColor(county.climateId)
+    }
+
+    if (this.displayMode !== 'temperature') {
+      return 0x5f8d52
+    }
+
+    return this.applyTemperatureOverlay(0x5f8d52, county.temperature)
+  }
+
+  private climateColor(climateId: string): number {
+    switch (climateId) {
+      case 'arctic':
+        return 0xd9f2ff
+      case 'subarctic':
+        return 0xa7d3ff
+      case 'cool':
+        return 0x8bcf9d
+      case 'temperate':
+        return 0x66b55f
+      case 'warm':
+        return 0xd8c85b
+      case 'tropical':
+        return 0xe89a4f
+      case 'extreme':
+        return 0xc85b3d
+      default:
+        return 0x5f8d52
+    }
+  }
+
+  private applyTemperatureOverlay(baseColor: number, temperature: number): number {
+    const normalizedTemperature = Math.max(0, Math.min(1, temperature))
+    const temperatureColor = this.temperatureGradientColor(normalizedTemperature)
+    return this.blendColors(baseColor, temperatureColor, 0.48)
+  }
+
+  private temperatureGradientColor(normalizedTemperature: number): number {
+    const t = Math.max(0, Math.min(1, normalizedTemperature))
+    const red = Math.round(255 * t)
+    const blue = Math.round(255 * (1 - t))
+    const green = 0
+    return (red << 16) | (green << 8) | blue
+  }
+
+  private blendColors(baseColor: number, overlayColor: number, amount: number): number {
+    const safeAmount = Math.max(0, Math.min(1, amount))
+    const inverse = 1 - safeAmount
+
+    const baseRed = (baseColor >> 16) & 0xff
+    const baseGreen = (baseColor >> 8) & 0xff
+    const baseBlue = baseColor & 0xff
+
+    const overlayRed = (overlayColor >> 16) & 0xff
+    const overlayGreen = (overlayColor >> 8) & 0xff
+    const overlayBlue = overlayColor & 0xff
+
+    const red = Math.round(baseRed * inverse + overlayRed * safeAmount)
+    const green = Math.round(baseGreen * inverse + overlayGreen * safeAmount)
+    const blue = Math.round(baseBlue * inverse + overlayBlue * safeAmount)
+
+    return (red << 16) | (green << 8) | blue
+  }
+
+  private lightenTowardWhite(color: number, amount: number): number {
+    const safeAmount = Math.max(0, Math.min(1, amount))
+    const red = (color >> 16) & 0xff
+    const green = (color >> 8) & 0xff
+    const blue = color & 0xff
+
+    const nextRed = Math.round(red + (255 - red) * safeAmount)
+    const nextGreen = Math.round(green + (255 - green) * safeAmount)
+    const nextBlue = Math.round(blue + (255 - blue) * safeAmount)
+
+    return (nextRed << 16) | (nextGreen << 8) | nextBlue
   }
 }

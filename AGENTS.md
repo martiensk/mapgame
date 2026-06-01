@@ -90,6 +90,30 @@ At minimum define structures for:
 
 Use plain serializable data structures so generated worlds can be saved/loaded as JSON.
 
+## County Storage And Retrieval
+
+Use a two-layer model for county data:
+
+- Canonical world data (`WorldData`) remains the source of truth and must stay plain/serializable.
+- Derived runtime indexes are built from world data for fast lookups during hover and simulation.
+
+Storage rules:
+
+- Store counties in `world.counties` with stable `id` values.
+- Keep county geometry/topology immutable after generation (`polygon`, `centroid`, `neighbors`, `landMassId`).
+- Do not store non-serializable lookup maps inside serialized world payloads.
+
+Retrieval rules:
+
+- Build lookup/index maps in `src/state/worldIndex.ts` (for example `countiesById`, neighbor maps, and coastal cross-links).
+- Rebuild indexes every time the world is regenerated to prevent stale references.
+- Use ID-keyed lookup (`Map<RegionId, County>`) for repeated reads (hover metadata, adjacency traversal, time-step logic).
+- Keep simulation/runtime mutable state in separate ID-keyed structures (for example county ownership/development), not on canonical county records.
+
+Performance note:
+
+- Hover/select interaction should continue to use Pixi hit-testing; indexes are for fast metadata retrieval and simulation traversal, not a replacement for rendering hit detection.
+
 ## Suggested Project Module Boundaries
 
 - `src/generation/random.ts` seedable RNG utilities.
@@ -102,6 +126,7 @@ Use plain serializable data structures so generated worlds can be saved/loaded a
 - `src/input/cameraController.ts` pan/zoom logic.
 - `src/input/regionInteraction.ts` hover/select hit handling.
 - `src/state/worldState.ts` authoritative in-memory game map state.
+- `src/state/worldIndex.ts` derived ID and adjacency indexes for fast county/sea-zone retrieval.
 
 Agents may adjust file names, but must preserve this separation of concerns.
 

@@ -1,6 +1,6 @@
 import type { SeaZone } from '../types/world'
 import type { Point } from '../types/world'
-import { polygonArea } from '../geometry/polygon'
+import { mergeAdjacentPolygons } from '../geometry/polygon'
 import type { SeededRandom } from './random'
 import type { VoronoiCell } from './voronoi'
 
@@ -10,168 +10,63 @@ export interface SeaZoneGenerationResult {
   cellIdBySeaZoneId: Map<string, string>
 }
 
+export interface SeaZoneMergeDiagnostics {
+  mergeAttempts: number
+  disconnectedMergeRejects: number
+  areaCoverageRejects: number
+}
+
 function unique(values: string[]): string[] {
   return [...new Set(values)]
 }
 
-function mergeZoneGeometry(
-  survivor: SeaZone,
-  absorbers: SeaZone[],
-): {
-  polygon: SeaZone['polygon']
-  absorbedIds: string[]
-  area: number
-  centroid: SeaZone['centroid']
-} {
-  const allZones = [survivor, ...absorbers]
-  const epsilonDigits = 6
-  const totalArea = allZones.reduce((sum, zone) => sum + zone.area, 0)
-  let weightedX = 0
-  let weightedY = 0
+const MAX_SEA_ZONE_MEMBER_COUNT = 4
 
-  allZones.forEach((zone) => {
-    const weight = zone.area / Math.max(1e-6, totalArea)
-    weightedX += zone.centroid.x * weight
-    weightedY += zone.centroid.y * weight
-  })
-
-  const pointKey = (point: Point): string =>
-    `${point.x.toFixed(epsilonDigits)},${point.y.toFixed(epsilonDigits)}`
-
-  const pointByKey = new Map<string, Point>()
-  const edgeCount = new Map<string, number>()
-
-  allZones.forEach((zone) => {
-    const polygon = zone.polygon
-    for (let index = 0; index < polygon.length; index += 1) {
-      const a = polygon[index]
-      const b = polygon[(index + 1) % polygon.length]
-      const keyA = pointKey(a)
-      const keyB = pointKey(b)
-
-      pointByKey.set(keyA, a)
-      pointByKey.set(keyB, b)
-
-      const undirectedKey = keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`
-      edgeCount.set(undirectedKey, (edgeCount.get(undirectedKey) ?? 0) + 1)
-    }
-  })
-
-  const adjacency = new Map<string, Set<string>>()
-  edgeCount.forEach((count, edgeKey) => {
-    if (count !== 1) {
-      return
-    }
-
-    const [left, right] = edgeKey.split('|')
-    if (!adjacency.has(left)) {
-      adjacency.set(left, new Set<string>())
-    }
-    if (!adjacency.has(right)) {
-      adjacency.set(right, new Set<string>())
-    }
-    adjacency.get(left)?.add(right)
-    adjacency.get(right)?.add(left)
-  })
-
-  const visitedDirected = new Set<string>()
-  const loops: SeaZone['polygon'][] = []
-
-  const edgeId = (from: string, to: string): string => `${from}>${to}`
-
-  adjacency.forEach((neighbors, start) => {
-    neighbors.forEach((firstNeighbor) => {
-      if (visitedDirected.has(edgeId(start, firstNeighbor))) {
-        return
-      }
-
-      const loopKeys: string[] = [start]
-      let previous = start
-      let current = firstNeighbor
-
-      visitedDirected.add(edgeId(start, firstNeighbor))
-
-      while (current !== start) {
-        loopKeys.push(current)
-        const currentNeighbors = [...(adjacency.get(current) ?? new Set<string>())]
-
-        if (currentNeighbors.length === 0) {
-          break
-        }
-
-        let next = ''
-        if (currentNeighbors.length === 1) {
-          next = currentNeighbors[0]
-        } else {
-          next = currentNeighbors[0] === previous ? currentNeighbors[1] : currentNeighbors[0]
-        }
-
-        if (!next) {
-          break
-        }
-
-        visitedDirected.add(edgeId(current, next))
-        previous = current
-        current = next
-      }
-
-      if (current !== start || loopKeys.length < 3) {
-        return
-      }
-
-      const loop: SeaZone['polygon'] = loopKeys
-        .map((key) => pointByKey.get(key))
-        .filter((point): point is Point => Boolean(point))
-
-      if (loop.length >= 3) {
-        loops.push(loop)
-      }
-    })
-  })
-
-  if (loops.length === 0) {
-    return {
-      polygon: survivor.polygon,
-      absorbedIds: [],
-      area: survivor.area,
-      centroid: survivor.centroid,
-    }
+function polygonPerimeter(polygon: Point[]): number {
+  if (polygon.length < 2) {
+    return 0
   }
 
-  const largestLoop = loops.sort((a, b) => polygonArea(b) - polygonArea(a))[0]
-
-  return {
-    polygon: largestLoop,
-    absorbedIds: absorbers.map((zone) => zone.id),
-    area: totalArea,
-    centroid: { x: weightedX, y: weightedY },
+  let perimeter = 0
+  for (let index = 0; index < polygon.length; index += 1) {
+    const current = polygon[index]
+    const next = polygon[(index + 1) % polygon.length]
+    perimeter += Math.hypot(next.x - current.x, next.y - current.y)
   }
+
+  return perimeter
+}
+
+function shapeCompactness(area: number, perimeter: number): number {
+  if (area <= 0 || perimeter <= 0) {
+    return 0
+  }
+
+  return (4 * Math.PI * area) / (perimeter * perimeter)
+}
+
+function safeAreaRatio(a: number, b: number): number {
+  const maxArea = Math.max(a, b)
+  if (maxArea <= 0) {
+    return 0
+  }
+
+  return Math.min(a, b) / maxArea
 }
 
 export function mergeCoastalSeaZonesPhase(
   result: SeaZoneGenerationResult,
   random: SeededRandom,
-): void {
-  const seaZoneById = new Map(result.seaZones.map((zone) => [zone.id, zone]))
-  const allPoints = result.seaZones.flatMap((zone) => zone.polygon)
-  const minX = allPoints.reduce((min, point) => Math.min(min, point.x), Infinity)
-  const maxX = allPoints.reduce((max, point) => Math.max(max, point.x), -Infinity)
-  const minY = allPoints.reduce((min, point) => Math.min(min, point.y), Infinity)
-  const maxY = allPoints.reduce((max, point) => Math.max(max, point.y), -Infinity)
-  const edgeEpsilon = 1e-4
+): SeaZoneMergeDiagnostics {
+  const diagnostics: SeaZoneMergeDiagnostics = {
+    mergeAttempts: 0,
+    disconnectedMergeRejects: 0,
+    areaCoverageRejects: 0,
+  }
 
-  const borderZoneIds = new Set(
-    result.seaZones
-      .filter((zone) =>
-        zone.polygon.some(
-          (point) =>
-            Math.abs(point.x - minX) <= edgeEpsilon ||
-            Math.abs(point.x - maxX) <= edgeEpsilon ||
-            Math.abs(point.y - minY) <= edgeEpsilon ||
-            Math.abs(point.y - maxY) <= edgeEpsilon,
-        ),
-      )
-      .map((zone) => zone.id),
+  const seaZoneById = new Map(result.seaZones.map((zone) => [zone.id, zone]))
+  const zoneMemberCountById = new Map<string, number>(
+    result.seaZones.map((zone) => [zone.id, 1]),
   )
   const absorberToSurvivorId = new Map<string, string>()
   const toRemove = new Set<string>()
@@ -243,11 +138,12 @@ export function mergeCoastalSeaZonesPhase(
     if (toRemove.has(survivorId) || absorberToSurvivorId.has(survivorId)) {
       return []
     }
-    if (borderZoneIds.has(survivorId)) {
-      return []
-    }
     const survivor = seaZoneById.get(survivorId)
     if (!survivor) {
+      return []
+    }
+    let survivorMemberCount = zoneMemberCountById.get(survivor.id) ?? 1
+    if (survivorMemberCount >= MAX_SEA_ZONE_MEMBER_COUNT) {
       return []
     }
 
@@ -255,35 +151,56 @@ export function mergeCoastalSeaZonesPhase(
       (absorberId) =>
         absorberId !== survivor.id &&
         !toRemove.has(absorberId) &&
-        !absorberToSurvivorId.has(absorberId) &&
-        !borderZoneIds.has(absorberId),
+        !absorberToSurvivorId.has(absorberId),
     )
     if (candidateIds.length === 0) {
       return []
     }
 
-    const absorberZones: SeaZone[] = []
-    candidateIds.forEach((absorberId) => {
-      const absorber = seaZoneById.get(absorberId)
-      if (absorber) {
-        absorberZones.push(absorber)
-      }
-    })
-
-    const mergedGeometry = mergeZoneGeometry(survivor, absorberZones)
-    if (mergedGeometry.absorbedIds.length === 0) {
-      return []
-    }
-
-    const candidateSet = new Set(mergedGeometry.absorbedIds)
+    const absorbedIds: string[] = []
+    const minimumSharedEdgeLength = 1e-6
     const allCoastalIds = new Set(survivor.coastalCountyIds)
     const allNeighbors = new Set(survivor.neighbors)
 
-    mergedGeometry.absorbedIds.forEach((absorberId) => {
+    candidateIds.forEach((absorberId) => {
       const absorber = seaZoneById.get(absorberId)
       if (!absorber) {
         return
       }
+      const absorberMemberCount = zoneMemberCountById.get(absorber.id) ?? 1
+      if (survivorMemberCount + absorberMemberCount > MAX_SEA_ZONE_MEMBER_COUNT) {
+        return
+      }
+
+      diagnostics.mergeAttempts += 1
+      const mergedPolygon = mergeAdjacentPolygons(
+        survivor.polygon,
+        absorber.polygon,
+        minimumSharedEdgeLength,
+      )
+      if (!mergedPolygon) {
+        diagnostics.disconnectedMergeRejects += 1
+        return
+      }
+
+      const mergedArea = survivor.area + absorber.area
+      const weightedSurvivorArea = survivor.area / Math.max(1e-6, mergedArea)
+      const weightedAbsorberArea = absorber.area / Math.max(1e-6, mergedArea)
+
+      survivor.polygon = mergedPolygon
+      survivor.area = mergedArea
+      survivor.centroid = {
+        x:
+          survivor.centroid.x * weightedSurvivorArea +
+          absorber.centroid.x * weightedAbsorberArea,
+        y:
+          survivor.centroid.y * weightedSurvivorArea +
+          absorber.centroid.y * weightedAbsorberArea,
+      }
+      survivorMemberCount += absorberMemberCount
+      zoneMemberCountById.set(survivor.id, survivorMemberCount)
+
+      absorbedIds.push(absorberId)
 
       toRemove.add(absorberId)
       absorberToSurvivorId.set(absorberId, survivor.id)
@@ -292,15 +209,16 @@ export function mergeCoastalSeaZonesPhase(
 
       absorber.coastalCountyIds.forEach((id) => allCoastalIds.add(id))
       absorber.neighbors.forEach((id) => {
-        if (id !== survivor.id && !candidateSet.has(id) && !toRemove.has(id)) {
+        if (id !== survivor.id && !toRemove.has(id)) {
           allNeighbors.add(id)
         }
       })
     })
 
-    survivor.polygon = mergedGeometry.polygon
-    survivor.area = mergedGeometry.area
-    survivor.centroid = mergedGeometry.centroid
+    if (absorbedIds.length === 0) {
+      return []
+    }
+
     survivor.coastalCountyIds = [...allCoastalIds]
     survivor.neighbors = unique(
       [...allNeighbors]
@@ -308,7 +226,7 @@ export function mergeCoastalSeaZonesPhase(
         .filter((id) => id !== survivor.id),
     )
 
-    return mergedGeometry.absorbedIds
+    return absorbedIds
   }
 
   const layerByZoneId = computeLayerByZoneId()
@@ -317,7 +235,7 @@ export function mergeCoastalSeaZonesPhase(
     0,
   )
   if (maxLayer === 0) {
-    return
+    return diagnostics
   }
 
   // Build layer-1 sectors from coastal chains and merge each chain into one sector survivor.
@@ -607,8 +525,7 @@ export function mergeCoastalSeaZonesPhase(
         (zoneId) =>
           (layerByZoneId.get(zoneId) ?? 1) >= deepestLayer &&
           !toRemove.has(zoneId) &&
-          !absorberToSurvivorId.has(zoneId) &&
-          !borderZoneIds.has(zoneId),
+          !absorberToSurvivorId.has(zoneId),
       ),
   )
 
@@ -794,7 +711,7 @@ export function mergeCoastalSeaZonesPhase(
       if (cleanupMergeCount >= maxCleanupMergesPerRound) {
         break
       }
-      if (toRemove.has(zoneId) || absorberToSurvivorId.has(zoneId) || borderZoneIds.has(zoneId)) {
+      if (toRemove.has(zoneId) || absorberToSurvivorId.has(zoneId)) {
         continue
       }
 
@@ -809,8 +726,7 @@ export function mergeCoastalSeaZonesPhase(
             neighborId !== zoneId &&
             deepZoneIds.has(neighborId) &&
             !toRemove.has(neighborId) &&
-            !absorberToSurvivorId.has(neighborId) &&
-            !borderZoneIds.has(neighborId),
+            !absorberToSurvivorId.has(neighborId),
         )
         .sort((leftId, rightId) => {
           const leftArea = seaZoneById.get(leftId)?.area ?? 0
@@ -860,6 +776,147 @@ export function mergeCoastalSeaZonesPhase(
     }
   }
 
+  const activeZoneIds = (): string[] =>
+    result.seaZones
+      .map((zone) => zone.id)
+      .filter(
+        (zoneId) => !toRemove.has(zoneId) && !absorberToSurvivorId.has(zoneId),
+      )
+
+  const minimumExpectedMerges = Math.max(1, Math.floor(result.seaZones.length * 0.02))
+  if (toRemove.size < minimumExpectedMerges) {
+    const fallbackTargetCount = Math.max(1, Math.floor(activeZoneIds().length * 0.9))
+    const maxFallbackRounds = 6
+
+    for (let round = 0; round < maxFallbackRounds; round += 1) {
+      const ids = activeZoneIds()
+      if (ids.length <= fallbackTargetCount) {
+        break
+      }
+
+      shuffleInPlace(ids)
+      let mergedInRound = false
+
+      for (let index = 0; index < ids.length; index += 1) {
+        const survivorId = ids[index]
+        if (toRemove.has(survivorId) || absorberToSurvivorId.has(survivorId)) {
+          continue
+        }
+
+        const survivor = seaZoneById.get(survivorId)
+        if (!survivor) {
+          continue
+        }
+        const survivorMemberCount = zoneMemberCountById.get(survivor.id) ?? 1
+        if (survivorMemberCount >= MAX_SEA_ZONE_MEMBER_COUNT) {
+          continue
+        }
+
+        const neighborIds = survivor.neighbors.filter(
+          (neighborId) =>
+            neighborId !== survivorId &&
+            !toRemove.has(neighborId) &&
+            !absorberToSurvivorId.has(neighborId) &&
+            seaZoneById.has(neighborId),
+        )
+
+        if (neighborIds.length === 0) {
+          continue
+        }
+
+        let bestAbsorberId = ''
+        let bestScore = Number.NEGATIVE_INFINITY
+
+        for (let neighborIndex = 0; neighborIndex < neighborIds.length; neighborIndex += 1) {
+          const absorberId = neighborIds[neighborIndex]
+          const absorber = seaZoneById.get(absorberId)
+          if (!absorber) {
+            continue
+          }
+          const absorberMemberCount = zoneMemberCountById.get(absorber.id) ?? 1
+          if (survivorMemberCount + absorberMemberCount > MAX_SEA_ZONE_MEMBER_COUNT) {
+            continue
+          }
+
+          const mergedPolygon = mergeAdjacentPolygons(
+            survivor.polygon,
+            absorber.polygon,
+            1e-6,
+          )
+          if (!mergedPolygon) {
+            continue
+          }
+
+          const mergedArea = survivor.area + absorber.area
+          const mergedPerimeter = polygonPerimeter(mergedPolygon)
+          const mergedCompactness = shapeCompactness(mergedArea, mergedPerimeter)
+          const survivorPerimeter = polygonPerimeter(survivor.polygon)
+          const absorberPerimeter = polygonPerimeter(absorber.polygon)
+          const survivorCompactness = shapeCompactness(survivor.area, survivorPerimeter)
+          const absorberCompactness = shapeCompactness(absorber.area, absorberPerimeter)
+          const weightedInputCompactness =
+            (survivorCompactness * survivor.area + absorberCompactness * absorber.area) /
+            Math.max(1e-6, survivor.area + absorber.area)
+          const compactnessGain = mergedCompactness - weightedInputCompactness
+
+          const centroidDistance = Math.hypot(
+            survivor.centroid.x - absorber.centroid.x,
+            survivor.centroid.y - absorber.centroid.y,
+          )
+          const centroidDistanceNormalized =
+            centroidDistance / Math.max(1e-6, Math.sqrt(mergedArea))
+          const areaBalance = safeAreaRatio(survivor.area, absorber.area)
+
+          const score =
+            mergedCompactness * 2.4 +
+            compactnessGain * 2.1 +
+            areaBalance * 0.9 -
+            centroidDistanceNormalized * 0.7
+
+          if (score > bestScore) {
+            bestScore = score
+            bestAbsorberId = absorberId
+          }
+        }
+
+        if (!bestAbsorberId) {
+          continue
+        }
+
+        const fallbackSectorId = `fallback-${survivorId}`
+        if (!sectors.has(fallbackSectorId)) {
+          sectors.set(fallbackSectorId, {
+            id: fallbackSectorId,
+            survivorId,
+            memberIds: new Set<string>([survivorId]),
+          })
+        }
+        zoneIdToSectorId.set(survivorId, fallbackSectorId)
+
+        const absorbedIds = mergeIntoSectorSurvivor(
+          fallbackSectorId,
+          [bestAbsorberId],
+          survivorId,
+        )
+
+        if (absorbedIds.length > 0) {
+          mergedInRound = true
+          absorbedIds.forEach((absorbedId) => {
+            zoneIdToSectorId.set(absorbedId, fallbackSectorId)
+          })
+        }
+
+        if (activeZoneIds().length <= fallbackTargetCount) {
+          break
+        }
+      }
+
+      if (!mergedInRound) {
+        break
+      }
+    }
+  }
+
   // Remove absorbed zones from result by filtering in-place
   let removeIndex = 0
   for (let i = 0; i < result.seaZones.length; i++) {
@@ -902,6 +959,8 @@ export function mergeCoastalSeaZonesPhase(
     // Remove absorbed zone from mappings
     result.cellIdBySeaZoneId.delete(absorberId)
   })
+
+  return diagnostics
 }
 
 export function generateSeaZones(
@@ -925,6 +984,12 @@ export function generateSeaZones(
       area: cell.area,
       neighbors: [],
       coastalCountyIds: [],
+      biomeId: 'ocean',
+      climateId: 'temperate',
+      temperatureBase: 0,
+      temperatureGlobalModifier: 0,
+      temperatureBiomeModifier: 0,
+      temperature: 0,
     })
 
     seaZoneIdByCellId.set(cell.id, id)

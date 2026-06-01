@@ -1,30 +1,35 @@
 import type { Graphics } from 'pixi.js'
-import type { County } from '../types/world'
 
-export interface RegionInteractionCallbacks {
-  onHoverStart?: (county: County) => void
-  onHoverEnd?: (county: County) => void
-  onSelect?: (county: County) => void
+export interface RegionInteractionCallbacks<TRegion> {
+  onHoverStart?: (region: TRegion) => void
+  onHoverEnd?: (region: TRegion) => void
+  onSelect?: (region: TRegion) => void
 }
 
-export function bindCountyInteraction(
+export function bindRegionInteraction<TRegion>(
   graphic: Graphics,
-  county: County,
-  callbacks: RegionInteractionCallbacks,
+  region: TRegion,
+  callbacks: RegionInteractionCallbacks<TRegion>,
+  options?: { selectable?: boolean },
 ): () => void {
-  const onPointerOver = () => callbacks.onHoverStart?.(county)
-  const onPointerOut = () => callbacks.onHoverEnd?.(county)
-  const onPointerDown = () => callbacks.onSelect?.(county)
+  const selectable = options?.selectable ?? true
+  const onPointerOver = () => callbacks.onHoverStart?.(region)
+  const onPointerOut = () => callbacks.onHoverEnd?.(region)
+  const onPointerDown = () => callbacks.onSelect?.(region)
 
   graphic.eventMode = 'static'
   graphic.cursor = 'pointer'
   graphic.on('pointerover', onPointerOver)
   graphic.on('pointerout', onPointerOut)
-  graphic.on('pointerdown', onPointerDown)
+  if (selectable) {
+    graphic.on('pointerdown', onPointerDown)
+  }
 
   return () => {
     graphic.off('pointerover', onPointerOver)
     graphic.off('pointerout', onPointerOut)
-    graphic.off('pointerdown', onPointerDown)
+    if (selectable) {
+      graphic.off('pointerdown', onPointerDown)
+    }
   }
 }

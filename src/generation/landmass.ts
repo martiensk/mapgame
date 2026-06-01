@@ -41,6 +41,77 @@ interface ThresholdCandidate {
   score: number
 }
 
+interface CandidateBalanceMetrics {
+  largestShareOfLand: number
+  secondLargestShareOfLand: number
+  dominanceRatio: number
+  minContinentSeparation: number
+  meanNearestContinentSeparation: number
+}
+
+function computeContinentSeparationMetrics(
+  components: LandMaskComponent[],
+  continentCount: number,
+  cols: number,
+  rows: number,
+): {
+  minContinentSeparation: number
+  meanNearestContinentSeparation: number
+} {
+  const sampledContinentCount = Math.min(continentCount, components.length)
+  if (sampledContinentCount <= 1) {
+    return {
+      minContinentSeparation: 1,
+      meanNearestContinentSeparation: 1,
+    }
+  }
+
+  const topComponents = [...components]
+    .sort((left, right) => right.cellCount - left.cellCount)
+    .slice(0, sampledContinentCount)
+  const diagonal = Math.max(1, Math.hypot(cols, rows))
+  let minDistance = Number.POSITIVE_INFINITY
+  const nearestDistances: number[] = []
+
+  for (let index = 0; index < topComponents.length; index += 1) {
+    const current = topComponents[index]
+    let nearestForCurrent = Number.POSITIVE_INFINITY
+
+    for (let otherIndex = 0; otherIndex < topComponents.length; otherIndex += 1) {
+      if (index === otherIndex) {
+        continue
+      }
+
+      const other = topComponents[otherIndex]
+      const distance =
+        Math.hypot(current.centroidX - other.centroidX, current.centroidY - other.centroidY) /
+        diagonal
+
+      if (distance < minDistance) {
+        minDistance = distance
+      }
+
+      if (distance < nearestForCurrent) {
+        nearestForCurrent = distance
+      }
+    }
+
+    if (Number.isFinite(nearestForCurrent)) {
+      nearestDistances.push(nearestForCurrent)
+    }
+  }
+
+  const meanNearest =
+    nearestDistances.length > 0
+      ? nearestDistances.reduce((sum, value) => sum + value, 0) / nearestDistances.length
+      : 1
+
+  return {
+    minContinentSeparation: Number.isFinite(minDistance) ? minDistance : 1,
+    meanNearestContinentSeparation: meanNearest,
+  }
+}
+
 function smoothStep(t: number): number {
   return t * t * (3 - 2 * t)
 }
@@ -272,11 +343,63 @@ function buildThresholdCandidates(
       landFraction > maxLandFraction ? (landFraction - maxLandFraction) * 9000 : 0
     const tooLittleLandPenalty =
       landFraction < minLandFraction ? (minLandFraction - landFraction) * 6000 : 0
+
+    const sortedComponentCellCounts = [...components]
+      .map((component) => component.cellCount)
+      .sort((left, right) => right - left)
+    const largestComponentCells = sortedComponentCellCounts[0] ?? 0
+    const secondLargestComponentCells = sortedComponentCellCounts[1] ?? 0
+    const largestShareOfLand = largestComponentCells / Math.max(1, landCells)
+    const secondLargestShareOfLand = secondLargestComponentCells / Math.max(1, landCells)
+    const dominanceRatio =
+      largestComponentCells / Math.max(1, secondLargestComponentCells)
+
+    const targetLargestShare = Math.max(0.42, 0.62 - (minContinents - 1) * 0.05)
+    const dominantLargestPenalty =
+      largestShareOfLand > targetLargestShare
+        ? Math.pow(largestShareOfLand - targetLargestShare, 2) * 38000
+        : 0
+    const weakSecondMassPenalty =
+      secondLargestShareOfLand < 0.12 && components.length >= minContinents
+        ? (0.12 - secondLargestShareOfLand) * 5200
+        : 0
+    const dominanceRatioPenalty =
+      dominanceRatio > 3.4 ? Math.pow(dominanceRatio - 3.4, 2) * 320 : 0
+
+    const separationMetrics = computeContinentSeparationMetrics(
+      components,
+      minContinents,
+      field.cols,
+      field.rows,
+    )
+    const targetMinContinentSeparation =
+      minContinents >= 4 ? 0.18 : minContinents >= 3 ? 0.165 : 0.14
+    const targetMeanNearestSeparation = targetMinContinentSeparation * 1.4
+    const minSeparationPenalty =
+      separationMetrics.minContinentSeparation < targetMinContinentSeparation
+        ? Math.pow(
+            targetMinContinentSeparation - separationMetrics.minContinentSeparation,
+            2,
+          ) * 68000
+        : 0
+    const nearestSeparationPenalty =
+      separationMetrics.meanNearestContinentSeparation < targetMeanNearestSeparation
+        ? Math.pow(
+            targetMeanNearestSeparation - separationMetrics.meanNearestContinentSeparation,
+            2,
+          ) * 36000
+        : 0
+
     const score =
       componentScore -
       targetPenalty -
       tooMuchLandPenalty -
       tooLittleLandPenalty -
+      dominantLargestPenalty -
+      weakSecondMassPenalty -
+      minSeparationPenalty -
+      nearestSeparationPenalty -
+      dominanceRatioPenalty -
       i
 
     candidates.push({ threshold, components, landFraction, score })
@@ -289,6 +412,107 @@ function buildThresholdCandidates(
 
     return left.threshold - right.threshold
   })
+}
+
+function computeCandidateBalanceMetrics(
+  candidate: ThresholdCandidate,
+  minContinents: number,
+  cols: number,
+  rows: number,
+): CandidateBalanceMetrics {
+  let landCells = 0
+  for (let index = 0; index < candidate.components.length; index += 1) {
+    landCells += candidate.components[index].cellCount
+  }
+
+  if (landCells <= 0) {
+    return {
+      largestShareOfLand: 0,
+      secondLargestShareOfLand: 0,
+      dominanceRatio: 0,
+      minContinentSeparation: 1,
+      meanNearestContinentSeparation: 1,
+    }
+  }
+
+  const sortedComponentCellCounts = [...candidate.components]
+    .map((component) => component.cellCount)
+    .sort((left, right) => right - left)
+  const largestComponentCells = sortedComponentCellCounts[0] ?? 0
+  const secondLargestComponentCells = sortedComponentCellCounts[1] ?? 0
+
+  const separationMetrics = computeContinentSeparationMetrics(
+    candidate.components,
+    minContinents,
+    cols,
+    rows,
+  )
+
+  return {
+    largestShareOfLand: largestComponentCells / landCells,
+    secondLargestShareOfLand: secondLargestComponentCells / landCells,
+    dominanceRatio: largestComponentCells / Math.max(1, secondLargestComponentCells),
+    minContinentSeparation: separationMetrics.minContinentSeparation,
+    meanNearestContinentSeparation: separationMetrics.meanNearestContinentSeparation,
+  }
+}
+
+function selectBalancedThresholdCandidate(
+  candidates: ThresholdCandidate[],
+  minContinents: number,
+  cols: number,
+  rows: number,
+): ThresholdCandidate | undefined {
+  if (candidates.length === 0) {
+    return undefined
+  }
+
+  const strictLargestShare = minContinents >= 3 ? 0.58 : 0.66
+  const strictSecondLargestShare = minContinents >= 3 ? 0.14 : 0.1
+  const strictDominanceRatio = minContinents >= 3 ? 2.8 : 3.5
+  const strictMinContinentSeparation = minContinents >= 4 ? 0.18 : minContinents >= 3 ? 0.165 : 0.14
+  const strictMeanNearestSeparation = strictMinContinentSeparation * 1.4
+  const relaxedLargestShare = strictLargestShare + 0.08
+  const relaxedSecondLargestShare = Math.max(0.06, strictSecondLargestShare - 0.04)
+  const relaxedDominanceRatio = strictDominanceRatio + 1.2
+  const relaxedMinContinentSeparation = strictMinContinentSeparation - 0.03
+  const relaxedMeanNearestSeparation = strictMeanNearestSeparation - 0.04
+
+  const strictCandidate = candidates.find((candidate) => {
+    if (candidate.components.length < minContinents) {
+      return false
+    }
+
+    const metrics = computeCandidateBalanceMetrics(candidate, minContinents, cols, rows)
+    return (
+      metrics.largestShareOfLand <= strictLargestShare &&
+      metrics.secondLargestShareOfLand >= strictSecondLargestShare &&
+      metrics.dominanceRatio <= strictDominanceRatio &&
+      metrics.minContinentSeparation >= strictMinContinentSeparation &&
+      metrics.meanNearestContinentSeparation >= strictMeanNearestSeparation
+    )
+  })
+
+  if (strictCandidate) {
+    return strictCandidate
+  }
+
+  const relaxedCandidate = candidates.find((candidate) => {
+    if (candidate.components.length < minContinents) {
+      return false
+    }
+
+    const metrics = computeCandidateBalanceMetrics(candidate, minContinents, cols, rows)
+    return (
+      metrics.largestShareOfLand <= relaxedLargestShare &&
+      metrics.secondLargestShareOfLand >= relaxedSecondLargestShare &&
+      metrics.dominanceRatio <= relaxedDominanceRatio &&
+      metrics.minContinentSeparation >= relaxedMinContinentSeparation &&
+      metrics.meanNearestContinentSeparation >= relaxedMeanNearestSeparation
+    )
+  })
+
+  return relaxedCandidate ?? candidates[0]
 }
 
 function sortComponentsForStability(components: LandMaskComponent[]): LandMaskComponent[] {
@@ -420,7 +644,13 @@ export function generateLandMassShapes(
   const continentCount = random.int(minContinents, maxContinents)
   const islandCount = random.int(minIslands, maxIslands)
   const candidates = buildThresholdCandidates(field, config)
-  const components = sortComponentsForStability(candidates[0]?.components ?? [])
+  const selectedCandidate = selectBalancedThresholdCandidate(
+    candidates,
+    minContinents,
+    field.cols,
+    field.rows,
+  )
+  const components = sortComponentsForStability(selectedCandidate?.components ?? [])
 
   if (components.length === 0) {
     return []

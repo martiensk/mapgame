@@ -1,0 +1,29 @@
+{
+    "version": 1,
+    "biomes": [
+        {
+            "id": "plains",
+            "label": "Plains",
+            "regionType": "land",
+            "temperatureModifier": 0,
+            "notes": "Default land biome until biome generation is implemented."
+        },
+        {
+            "id": "ocean",
+            "label": "Ocean",
+            "regionType": "sea",
+            "temperatureModifierRule": {
+                "type": "seaZoneLayerMultiplier",
+                "multiplier": -3,
+                "description": "Biome modifier equals sea-zone layer multiplied by -3."
+            }
+        },
+        {
+            "id": "freezing ocean",
+            "label": "Freezing Ocean",
+            "regionType": "sea",
+            "temperatureModifier": 0,
+            "notes": "Assigned automatically when final sea-zone temperature drops below 0."
+        }
+    ]
+}

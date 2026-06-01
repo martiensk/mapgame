@@ -7,20 +7,27 @@ import {
   type MapSize,
 } from './config/worldScaleConfig'
 import { DEBUG_CONFIG } from './config/debugConfig'
-import { PixiMap } from './render/pixiMap'
+import { PixiMap, type MapDisplayMode } from './render/pixiMap'
 import { createWorldState } from './state/worldState'
-import type { County } from './types/world'
+import type { County, SeaZone } from './types/world'
 
 function generateRandomSeed(): string {
   const uuid = crypto.randomUUID().split('-')[0]
   return `seed-${uuid}`
 }
 
+function formatTemperature(value: number): string {
+  return value.toFixed(3)
+}
+
 function App() {
   const [mapSize, setMapSize] = useState<MapSize>(DEFAULT_MAP_SIZE)
+  const [latitudeTemperatureGamma, setLatitudeTemperatureGamma] = useState(
+    WORLD_SCALE_CONFIGS[DEFAULT_MAP_SIZE].latitudeTemperatureGamma,
+  )
   const [isMenuCollapsed, setIsMenuCollapsed] = useState(true)
-  const [showSeaZoneLayers, setShowSeaZoneLayers] = useState(
-    DEBUG_CONFIG.showSeaZoneLayers,
+  const [displayMode, setDisplayMode] = useState<MapDisplayMode>(
+    DEBUG_CONFIG.defaultMapDisplayMode,
   )
   const worldState = useMemo(
     () => createWorldState(generateRandomSeed(), WORLD_SCALE_CONFIGS[DEFAULT_MAP_SIZE]),
@@ -29,10 +36,15 @@ function App() {
   const [seed, setSeed] = useState('')
   const [world, setWorld] = useState(worldState.world)
   const [hoveredCounty, setHoveredCounty] = useState<County | null>(null)
-  const [selectedCounty, setSelectedCounty] = useState<County | null>(null)
+  const [hoveredSeaZone, setHoveredSeaZone] = useState<SeaZone | null>(null)
+  const [showHoveredCountyOverlay, setShowHoveredCountyOverlay] = useState(true)
   const mapHostRef = useRef<HTMLDivElement | null>(null)
   const pixiMapRef = useRef<PixiMap | null>(null)
   const initialWorldRef = useRef(world)
+  const seaZoneLayerById = worldState.index.seaZoneLayerById
+  const hoveredSeaZoneLayer = hoveredSeaZone
+    ? seaZoneLayerById.get(hoveredSeaZone.id) ?? 1
+    : null
 
   useEffect(() => {
     if (!mapHostRef.current) {
@@ -41,7 +53,7 @@ function App() {
 
     const pixiMap = new PixiMap(mapHostRef.current, {
       onHoverCounty: setHoveredCounty,
-      onSelectCounty: setSelectedCounty,
+      onHoverSeaZone: setHoveredSeaZone,
     })
 
     void pixiMap.mount(initialWorldRef.current)
@@ -62,32 +74,58 @@ function App() {
   }, [])
 
   useEffect(() => {
-    pixiMapRef.current?.setShowSeaZoneLayers(showSeaZoneLayers)
-  }, [showSeaZoneLayers])
+    pixiMapRef.current?.setDisplayMode(displayMode)
+  }, [displayMode])
 
   const onRegenerate = (): void => {
     const typedSeed = seed.trim()
     const nextSeed = typedSeed || generateRandomSeed()
-    const nextWorld = worldState.regenerate(nextSeed, WORLD_SCALE_CONFIGS[mapSize])
+    const nextWorld = worldState.regenerate(nextSeed, {
+      ...WORLD_SCALE_CONFIGS[mapSize],
+      latitudeTemperatureGamma,
+    })
     setHoveredCounty(null)
-    setSelectedCounty(null)
+    setHoveredSeaZone(null)
     setWorld(nextWorld)
   }
 
+  const hoveredRegion = hoveredCounty ?? hoveredSeaZone
+
   return (
     <div className={`layout ${isMenuCollapsed ? 'menu-collapsed' : ''}`}>
-      <button
-        type="button"
-        className="menu-toggle"
-        onClick={() => setIsMenuCollapsed((previous) => !previous)}
-        aria-expanded={!isMenuCollapsed}
-        aria-controls="bootstrap-panel"
-      >
-        {isMenuCollapsed ? 'Show Menu' : 'Hide Menu'}
-      </button>
+      <header className="site-header">
+        <button
+          type="button"
+          className="hamburger-toggle"
+          onClick={() => setIsMenuCollapsed((previous) => !previous)}
+          aria-expanded={!isMenuCollapsed}
+          aria-controls="bootstrap-panel"
+          aria-label={isMenuCollapsed ? 'Open debug menu' : 'Close debug menu'}
+        >
+          <span aria-hidden="true">☰</span>
+        </button>
+        <h1 className="site-title">Map Generator</h1>
+        <label className="header-mode-row" htmlFor="map-display-mode">
+          <span>Map mode</span>
+          <select
+            id="map-display-mode"
+            className="header-mode-select"
+            value={displayMode}
+            onChange={(event) => setDisplayMode(event.target.value as MapDisplayMode)}
+          >
+            <option value="landscape">Landscape</option>
+            <option value="sea-zone">Sea zone</option>
+            <option value="temperature">Temperature</option>
+            <option value="climate">Climate</option>
+          </select>
+        </label>
+        <button type="button" className="header-generate" onClick={onRegenerate}>
+          Generate
+        </button>
+      </header>
 
       <aside id="bootstrap-panel" className="panel">
-        <h1>Mapgame Bootstrap</h1>
+        <h2>Debug Menu</h2>
         <p className="subtitle">
           Seeded world generation with PixiJS pan/zoom and county interaction.
         </p>
@@ -103,9 +141,6 @@ function App() {
             onChange={(event) => setSeed(event.target.value)}
             placeholder="Optional manual seed"
           />
-          <button type="button" onClick={onRegenerate}>
-            Regenerate
-          </button>
         </div>
         <p className="subtitle">Active seed: {world.metadata.seed}</p>
 
@@ -129,6 +164,22 @@ function App() {
             {WORLD_SCALE_CONFIGS[mapSize].width} x {WORLD_SCALE_CONFIGS[mapSize].height}
           </p>
           <p>Target cells: {WORLD_SCALE_CONFIGS[mapSize].voronoiCellTarget}</p>
+
+          <label className="scale-row" htmlFor="latitude-temperature-gamma">
+            <span>Latitude temp curve</span>
+            <input
+              id="latitude-temperature-gamma"
+              type="range"
+              min="0.6"
+              max="2.4"
+              step="0.05"
+              value={latitudeTemperatureGamma}
+              onChange={(event) =>
+                setLatitudeTemperatureGamma(Number(event.target.value))
+              }
+            />
+          </label>
+          <p>Gamma: {latitudeTemperatureGamma.toFixed(2)}</p>
         </section>
 
         <dl className="stats">
@@ -147,25 +198,21 @@ function App() {
         </dl>
 
         <section className="details">
-          <h2>Selected County</h2>
-          {selectedCounty ? (
+          <h2>Hovered Region</h2>
+          {hoveredRegion ? (
             <>
-              <p>{selectedCounty.name}</p>
-              <p>ID: {selectedCounty.id}</p>
-              <p>Area: {Math.round(selectedCounty.area)}</p>
-              <p>Neighbors: {selectedCounty.neighbors.length}</p>
+              <p>ID: {hoveredRegion.id}</p>
+              <p>Type: {hoveredCounty ? 'County' : 'Sea-zone'}</p>
+              <p>Biome: {hoveredRegion.biomeId}</p>
+              <p>Climate: {hoveredRegion.climateId}</p>
+              <p>Base Temp: {formatTemperature(hoveredRegion.temperatureBase)}</p>
+              <p>Final Temp: {formatTemperature(hoveredRegion.temperature)}</p>
+              {hoveredSeaZone && hoveredSeaZoneLayer !== null ? (
+                <p>Sea-zone layer: {hoveredSeaZoneLayer}</p>
+              ) : null}
             </>
           ) : (
-            <p>Click a county to inspect metadata.</p>
-          )}
-        </section>
-
-        <section className="details">
-          <h2>Hovered County</h2>
-          {hoveredCounty ? (
-            <p>{hoveredCounty.id}</p>
-          ) : (
-            <p>Move the mouse over a county polygon.</p>
+            <p>Move the mouse over a county or sea-zone polygon.</p>
           )}
         </section>
 
@@ -174,10 +221,10 @@ function App() {
           <label className="checkbox-row">
             <input
               type="checkbox"
-              checked={showSeaZoneLayers}
-              onChange={(event) => setShowSeaZoneLayers(event.target.checked)}
+              checked={showHoveredCountyOverlay}
+              onChange={(event) => setShowHoveredCountyOverlay(event.target.checked)}
             />
-            <span>Color sea-zones by coastline layer</span>
+            <span>Show hovered region overlay</span>
           </label>
         </section>
       </aside>
@@ -185,6 +232,37 @@ function App() {
       <main className="map-area">
         <div ref={mapHostRef} className="map-canvas" />
       </main>
+
+      {showHoveredCountyOverlay && hoveredRegion ? (
+        <section className="selected-county-overlay" aria-hidden="true">
+          <h2>{hoveredCounty ? 'Hovered County' : 'Hovered Sea-zone'}</h2>
+          {hoveredCounty ? (
+            <>
+              <p>{hoveredCounty.name}</p>
+              <p>ID: {hoveredCounty.id}</p>
+              <p>Area: {Math.round(hoveredCounty.area)}</p>
+              <p>Neighbors: {hoveredCounty.neighbors.length}</p>
+              <p>Land-mass: {hoveredCounty.landMassId}</p>
+              <p>Biome: {hoveredCounty.biomeId}</p>
+              <p>Climate: {hoveredCounty.climateId}</p>
+              <p>Base Temp: {formatTemperature(hoveredCounty.temperatureBase)}</p>
+              <p>Final Temp: {formatTemperature(hoveredCounty.temperature)}</p>
+            </>
+          ) : hoveredSeaZone ? (
+            <>
+              <p>ID: {hoveredSeaZone.id}</p>
+              <p>Land-distance: {hoveredSeaZoneLayer ?? 1}</p>
+              <p>Area: {Math.round(hoveredSeaZone.area)}</p>
+              <p>Neighbors: {hoveredSeaZone.neighbors.length}</p>
+              <p>Coastal counties: {hoveredSeaZone.coastalCountyIds.length}</p>
+              <p>Biome: {hoveredSeaZone.biomeId}</p>
+              <p>Climate: {hoveredSeaZone.climateId}</p>
+              <p>Base Temp: {formatTemperature(hoveredSeaZone.temperatureBase)}</p>
+              <p>Final Temp: {formatTemperature(hoveredSeaZone.temperature)}</p>
+            </>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   )
 }
