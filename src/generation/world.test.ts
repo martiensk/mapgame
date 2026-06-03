@@ -1,3 +1,6 @@
+import biomesData from '../data/biomes.json'
+import terrainBiomeMapper from '../data/terrainBiomeMapper.json'
+import terrainMapper from '../data/terrainMapper.json'
 import { WORLD_SCALE_CONFIGS } from '../config/worldScaleConfig'
 import { describe, expect, it } from 'vitest'
 import { computeSeaZoneLayerById } from './seaZoneLayers'
@@ -9,6 +12,19 @@ const MIN_BASE_TEMPERATURE = 0.1
 const MAX_BASE_TEMPERATURE = 0.9
 const FREEZING_OCEAN_THRESHOLD = MIN_BASE_TEMPERATURE
 const SEA_ZONE_LAYER_TEMPERATURE_STEP = 3 / 140
+const landBiomeIds = new Set(
+  (biomesData as { biomes: Array<{ id: string; regionType: string }> }).biomes
+    .filter((biome) => biome.regionType === 'land')
+    .map((biome) => biome.id),
+)
+const terrainClasses = new Set(
+  (terrainMapper as { ranges: Array<{ label: string }> }).ranges.map((range) => range.label),
+)
+const finalizedTerrainBiomeLabels = new Set(
+  Object.values(
+    (terrainBiomeMapper as { terrainBiomes: Record<string, Record<string, string>> }).terrainBiomes,
+  ).flatMap((biomes) => Object.values(biomes)),
+)
 
 function clampTemperature(value: number): number {
   return Math.max(MIN_TEMPERATURE, Math.min(MAX_TEMPERATURE, value))
@@ -162,7 +178,11 @@ describe('generateWorld', () => {
     const riverCountyIds = new Set(world.rivers.flatMap((river) => river.countyPath))
 
     world.counties.forEach((county) => {
-      expect(county.biomeId).toBe('plains')
+      expect(county.biomeId.length).toBeGreaterThan(0)
+      const isRecognizedFinalRegion = finalizedTerrainBiomeLabels.has(county.biomeId)
+      const isTerrainClassFallback = terrainClasses.has(county.biomeId)
+      const isLegacyLandBiome = landBiomeIds.has(county.biomeId)
+      expect(isRecognizedFinalRegion || isTerrainClassFallback || isLegacyLandBiome).toBe(true)
       expect(county.temperatureGlobalModifier).toBe(0)
       expect(county.temperatureBiomeModifier).toBe(
         riverCountyIds.has(county.id)

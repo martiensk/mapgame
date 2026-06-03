@@ -1,0 +1,71 @@
+{
+    "version": 1,
+    "terrainBiomes": {
+        "Coast": {
+            "desert": "Coastal Desert",
+            "savanna": "Coastal Savanna",
+            "grassland": "Coastal Prairie",
+            "woodland": "Coastal Woodland",
+            "forest": "Coastal Forest",
+            "jungle": "Coastal Jungle",
+            "wetland": "Salt Marsh",
+            "tundra": "Arctic Coast",
+            "glacier": "Ice Coast"
+        },
+        "Flatland": {
+            "desert": "Desert",
+            "savanna": "Savanna",
+            "grassland": "Prairie",
+            "woodland": "Woodland",
+            "forest": "Forest",
+            "jungle": "Jungle",
+            "wetland": "Swamp",
+            "tundra": "Tundra",
+            "glacier": "Snowfield"
+        },
+        "Hills": {
+            "desert": "Badlands",
+            "savanna": "Rolling Savanna",
+            "grassland": "Rolling Steppe",
+            "woodland": "Wooded Hills",
+            "forest": "Forested Hills",
+            "jungle": "Jungle Hills",
+            "wetland": "Marsh Hills",
+            "tundra": "Tundra Hills",
+            "glacier": "Snowy Hills"
+        },
+        "High Hills": {
+            "desert": "Rugged Badlands",
+            "savanna": "Highland Savanna",
+            "grassland": "Highland Steppe",
+            "woodland": "Highland Woodland",
+            "forest": "Highland Forest",
+            "jungle": "Highland Jungle",
+            "wetland": "Highland Marsh",
+            "tundra": "Highland Tundra",
+            "glacier": "Highland Snow"
+        },
+        "Mountains": {
+            "desert": "Rocky Mountains",
+            "savanna": "Dry Mountains",
+            "grassland": "Alpine Meadow",
+            "woodland": "Forested Mountains",
+            "forest": "Mountain Forest",
+            "jungle": "Jungle Mountains",
+            "wetland": "Cloud Mountains",
+            "tundra": "Alpine Tundra",
+            "glacier": "Glaciated Mountains"
+        },
+        "Peaks": {
+            "desert": "Barren Peaks",
+            "savanna": "Dry Peaks",
+            "grassland": "Alpine Peaks",
+            "woodland": "Wooded Peaks",
+            "forest": "Forest Peaks",
+            "jungle": "Jungle Peaks",
+            "wetland": "Cloud Peaks",
+            "tundra": "Frozen Peaks",
+            "glacier": "Ice Peaks"
+        }
+    }
+}

@@ -11,6 +11,7 @@ export interface CameraControllerOptions {
   bounds: CameraBounds
   minZoom?: number
   maxZoom?: number
+  onZoomChange?: (zoom: number) => void
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -23,6 +24,7 @@ export class CameraController {
   private bounds: CameraBounds
   private readonly minZoom: number
   private readonly maxZoom: number
+  private readonly onZoomChange?: (zoom: number) => void
   private dragging = false
   private lastPointer = { x: 0, y: 0 }
 
@@ -32,9 +34,11 @@ export class CameraController {
     this.bounds = options.bounds
     this.minZoom = options.minZoom ?? 0.15
     this.maxZoom = options.maxZoom ?? 2.8
+    this.onZoomChange = options.onZoomChange
 
     this.bindEvents()
     this.clampToBounds()
+    this.emitZoomChange()
   }
 
   public destroy(): void {
@@ -48,6 +52,11 @@ export class CameraController {
   public setBounds(bounds: CameraBounds): void {
     this.bounds = bounds
     this.clampToBounds()
+    this.emitZoomChange()
+  }
+
+  public getZoom(): number {
+    return this.viewport.scale.x
   }
 
   private bindEvents(): void {
@@ -108,6 +117,11 @@ export class CameraController {
     this.viewport.x = cursorX - worldX * nextScale
     this.viewport.y = cursorY - worldY * nextScale
     this.clampToBounds()
+    this.emitZoomChange()
+  }
+
+  private emitZoomChange(): void {
+    this.onZoomChange?.(this.viewport.scale.x)
   }
 
   private getViewportSize(): { width: number; height: number } {

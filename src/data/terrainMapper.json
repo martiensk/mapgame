@@ -1,0 +1,36 @@
+{
+    "version": 1,
+    "seaLabel": "Ocean",
+    "ranges": [
+        {
+            "min": 0,
+            "max": 0.05,
+            "label": "Coast"
+        },
+        {
+            "min": 0.05,
+            "max": 0.35,
+            "label": "Flatland"
+        },
+        {
+            "min": 0.35,
+            "max": 0.6,
+            "label": "Hills"
+        },
+        {
+            "min": 0.6,
+            "max": 0.7,
+            "label": "High Hills"
+        },
+        {
+            "min": 0.7,
+            "max": 0.9,
+            "label": "Mountains"
+        },
+        {
+            "min": 0.9,
+            "max": 1,
+            "label": "Peaks"
+        }
+    ]
+}

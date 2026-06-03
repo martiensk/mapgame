@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import moistureMapper from './data/moistureMapper.json'
+import terrainMapper from './data/terrainMapper.json'
+import temperatureMapper from './data/temperatureMapper.json'
 import {
   DEFAULT_MAP_SIZE,
   MAP_SIZE_ORDER,
@@ -7,7 +10,7 @@ import {
   type MapSize,
 } from './config/worldScaleConfig'
 import { DEBUG_CONFIG } from './config/debugConfig'
-import { PixiMap, type MapDisplayMode } from './render/pixiMap'
+import { PixiMap, type MapDisplayMode, type SpriteDebugReport } from './render/pixiMap'
 import { createWorldState } from './state/worldState'
 import type { County, RiverSegment, SeaZone } from './types/world'
 
@@ -23,72 +26,87 @@ function generateRandomMoistureBaseLevel(): number {
   return Number(rawValue.toFixed(2))
 }
 
-function formatTemperature(value: number): string {
-  return value.toFixed(3)
+interface MoistureMapperRange {
+  min: number
+  max: number
+  label: string
 }
 
-function formatElevation(value: number): string {
-  return value.toFixed(3)
+interface MoistureMapperDocument {
+  ranges: MoistureMapperRange[]
 }
 
-function formatMoisturePercent(value: number): string {
-  return (value * 100).toFixed(1)
+interface ClimateMapperRange {
+  climateId: string
+  label: string
 }
+
+interface ClimateMapperDocument {
+  ranges: ClimateMapperRange[]
+}
+
+interface TerrainMapperRange {
+  min: number
+  max: number
+  label: string
+}
+
+interface TerrainMapperDocument {
+  seaLabel: string
+  ranges: TerrainMapperRange[]
+}
+
+const moistureRanges = (moistureMapper as MoistureMapperDocument).ranges
+const terrainMapping = terrainMapper as TerrainMapperDocument
+const climateLabelById = new Map(
+  (temperatureMapper as ClimateMapperDocument).ranges.map((range) => [range.climateId, range.label]),
+)
 
 function moistureNameFromValue(moisture: number): string {
-  if (moisture <= 0.15) {
-    return 'Parched'
+  const clampedMoisture = Math.max(0, Math.min(1, moisture))
+
+  for (let index = 0; index < moistureRanges.length; index += 1) {
+    const range = moistureRanges[index]
+    const isLastRange = index === moistureRanges.length - 1
+    const insideRange =
+      clampedMoisture >= range.min &&
+      (isLastRange ? clampedMoisture <= range.max : clampedMoisture < range.max)
+
+    if (insideRange) {
+      return range.label
+    }
   }
 
-  if (moisture <= 0.3) {
-    return 'Arid'
-  }
+  return moistureRanges[moistureRanges.length - 1]?.label ?? 'Saturated'
+}
 
-  if (moisture <= 0.45) {
-    return 'Dry'
-  }
-
-  if (moisture <= 0.6) {
-    return 'Balanced'
-  }
-
-  if (moisture <= 0.75) {
-    return 'Humid'
-  }
-
-  if (moisture <= 0.9) {
-    return 'Wet'
-  }
-
-  return 'Saturated'
+function climateNameFromId(climateId: string): string {
+  return climateLabelById.get(climateId) ?? climateId
 }
 
 function terrainTypeFromElevation(elevation: number, isSeaZone: boolean): string {
   if (isSeaZone) {
-    return 'Ocean'
+    return terrainMapping.seaLabel
   }
 
-  if (elevation <= 0.05) {
-    return 'Coast'
+  const clampedElevation = Math.max(0, Math.min(1, elevation))
+
+  let terrainClass = terrainMapping.ranges[terrainMapping.ranges.length - 1]?.label ?? 'Peaks'
+
+  for (let index = 0; index < terrainMapping.ranges.length; index += 1) {
+    const range = terrainMapping.ranges[index]
+    const isLastRange = index === terrainMapping.ranges.length - 1
+    const insideRange =
+      clampedElevation >= range.min &&
+      (isLastRange ? clampedElevation <= range.max : clampedElevation < range.max)
+
+    if (insideRange) {
+      terrainClass = range.label
+      break
+    }
   }
 
-  if (elevation <= 0.35) {
-    return 'Flatland'
-  }
-
-  if (elevation <= 0.6) {
-    return 'Hills'
-  }
-
-  if (elevation <= 0.7) {
-    return 'High Hills'
-  }
-
-  if (elevation <= 0.9) {
-    return 'Mountains'
-  }
-
-  return 'Peaks'
+  return terrainClass
 }
 
 function App() {
@@ -112,6 +130,7 @@ function App() {
   const [hoveredCounty, setHoveredCounty] = useState<County | null>(null)
   const [hoveredSeaZone, setHoveredSeaZone] = useState<SeaZone | null>(null)
   const [hoveredRiverSegment, setHoveredRiverSegment] = useState<RiverSegment | null>(null)
+  const [spriteDebug, setSpriteDebug] = useState<SpriteDebugReport | null>(null)
   const [showHoveredCountyOverlay, setShowHoveredCountyOverlay] = useState(true)
   const mapHostRef = useRef<HTMLDivElement | null>(null)
   const pixiMapRef = useRef<PixiMap | null>(null)
@@ -130,6 +149,7 @@ function App() {
       onHoverCounty: setHoveredCounty,
       onHoverSeaZone: setHoveredSeaZone,
       onHoverRiverSegment: setHoveredRiverSegment,
+      onSpriteDebugUpdate: setSpriteDebug,
     })
 
     void pixiMap.mount(initialWorldRef.current)
@@ -194,6 +214,7 @@ function App() {
             onChange={(event) => setDisplayMode(event.target.value as MapDisplayMode)}
           >
             <option value="landscape">Landscape</option>
+            <option value="biome">Biome</option>
             <option value="sea-zone">Sea zone</option>
             <option value="temperature">Temperature</option>
             <option value="climate">Climate</option>
@@ -307,19 +328,17 @@ function App() {
             </>
           ) : hoveredRegion ? (
             <>
-              <p>ID: {hoveredRegion.id}</p>
               <p>Type: {hoveredCounty ? 'County' : 'Sea-zone'}</p>
               <p>Biome: {hoveredRegion.biomeId}</p>
-              <p>Climate: {hoveredRegion.climateId}</p>
+              <p>Climate: {climateNameFromId(hoveredRegion.climateId)}</p>
               <p>
                 Terrain:{' '}
-                {terrainTypeFromElevation(hoveredRegion.elevation, Boolean(hoveredSeaZone))}
+                {terrainTypeFromElevation(
+                  hoveredRegion.elevation,
+                  Boolean(hoveredSeaZone),
+                )}
               </p>
-              <p>Elevation: {formatElevation(hoveredRegion.elevation)}</p>
-              <p>Moisture: {formatMoisturePercent(hoveredRegion.moisture)}</p>
               <p>Moisture Band: {moistureNameFromValue(hoveredRegion.moisture)}</p>
-              <p>Base Temp: {formatTemperature(hoveredRegion.temperatureBase)}</p>
-              <p>Final Temp: {formatTemperature(hoveredRegion.temperature)}</p>
               {hoveredSeaZone && hoveredSeaZoneLayer !== null ? (
                 <p>Sea-zone layer: {hoveredSeaZoneLayer}</p>
               ) : null}
@@ -340,8 +359,35 @@ function App() {
             <span>Show hovered region overlay</span>
           </label>
         </section>
-      </aside>
 
+        <section className="details">
+          <h2>Sprite Debug</h2>
+          {spriteDebug ? (
+            <>
+              <p>Enabled: {spriteDebug.enabled ? 'Yes' : 'No'}</p>
+              <p>Zoom: {spriteDebug.zoom.toFixed(2)}</p>
+              <p>Loaded families: {spriteDebug.loadedFamilyCount}</p>
+              <p>Loaded textures: {spriteDebug.loadedTextureCount}</p>
+              <p>Planned sprites: {spriteDebug.plannedSpriteCount}</p>
+              <p>Visible sprites: {spriteDebug.visibleSpriteCount}</p>
+              {spriteDebug.familyStats.length > 0 ? (
+                <div className="sprite-family-debug-list">
+                  {spriteDebug.familyStats.map((stats) => (
+                    <p key={stats.familyId}>
+                      {stats.familyId}: textures={stats.loadedTextureCount}, planned={stats.plannedCount}, visible={stats.visibleCount}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p>No sprite families discovered.</p>
+              )}
+            </>
+          ) : (
+            <p>Waiting for sprite debug data.</p>
+          )}
+        </section>
+      </aside>
+      
       <main className="map-area">
         <div ref={mapHostRef} className="map-canvas" />
       </main>
@@ -368,38 +414,27 @@ function App() {
           ) : hoveredCounty ? (
             <>
               <p>{hoveredCounty.name}</p>
-              <p>ID: {hoveredCounty.id}</p>
               <p>Area: {Math.round(hoveredCounty.area)}</p>
               <p>Neighbors: {hoveredCounty.neighbors.length}</p>
-              <p>Land-mass: {hoveredCounty.landMassId}</p>
               <p>Biome: {hoveredCounty.biomeId}</p>
-              <p>Climate: {hoveredCounty.climateId}</p>
+              <p>Climate: {climateNameFromId(hoveredCounty.climateId)}</p>
               <p>
                 Terrain: {terrainTypeFromElevation(hoveredCounty.elevation, false)}
               </p>
-              <p>Elevation: {formatElevation(hoveredCounty.elevation)}</p>
-              <p>Moisture: {formatMoisturePercent(hoveredCounty.moisture)}</p>
               <p>Moisture Band: {moistureNameFromValue(hoveredCounty.moisture)}</p>
-              <p>Base Temp: {formatTemperature(hoveredCounty.temperatureBase)}</p>
-              <p>Final Temp: {formatTemperature(hoveredCounty.temperature)}</p>
             </>
           ) : hoveredSeaZone ? (
             <>
-              <p>ID: {hoveredSeaZone.id}</p>
               <p>Land-distance: {hoveredSeaZoneLayer ?? 1}</p>
               <p>Area: {Math.round(hoveredSeaZone.area)}</p>
               <p>Neighbors: {hoveredSeaZone.neighbors.length}</p>
               <p>Coastal counties: {hoveredSeaZone.coastalCountyIds.length}</p>
               <p>Biome: {hoveredSeaZone.biomeId}</p>
-              <p>Climate: {hoveredSeaZone.climateId}</p>
+              <p>Climate: {climateNameFromId(hoveredSeaZone.climateId)}</p>
               <p>
                 Terrain: {terrainTypeFromElevation(hoveredSeaZone.elevation, true)}
               </p>
-              <p>Elevation: {formatElevation(hoveredSeaZone.elevation)}</p>
-              <p>Moisture: {formatMoisturePercent(hoveredSeaZone.moisture)}</p>
               <p>Moisture Band: {moistureNameFromValue(hoveredSeaZone.moisture)}</p>
-              <p>Base Temp: {formatTemperature(hoveredSeaZone.temperatureBase)}</p>
-              <p>Final Temp: {formatTemperature(hoveredSeaZone.temperature)}</p>
             </>
           ) : null}
         </section>

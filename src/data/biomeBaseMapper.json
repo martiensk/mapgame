@@ -1,0 +1,68 @@
+{
+    "version": 1,
+    "matrix": {
+        "arctic": {
+            "Parched": "polar-desert",
+            "Arid": "polar-desert",
+            "Dry": "tundra",
+            "Balanced": "tundra",
+            "Humid": "tundra",
+            "Wet": "frozen-wetland",
+            "Saturated": "glacier"
+        },
+        "subarctic": {
+            "Parched": "polar-desert",
+            "Arid": "tundra",
+            "Dry": "tundra",
+            "Balanced": "taiga",
+            "Humid": "taiga",
+            "Wet": "taiga",
+            "Saturated": "boreal-wetland"
+        },
+        "cool": {
+            "Parched": "steppe",
+            "Arid": "steppe",
+            "Dry": "grassland",
+            "Balanced": "woodland",
+            "Humid": "forest",
+            "Wet": "forest",
+            "Saturated": "wetland"
+        },
+        "temperate": {
+            "Parched": "steppe",
+            "Arid": "grassland",
+            "Dry": "grassland",
+            "Balanced": "forest",
+            "Humid": "forest",
+            "Wet": "forest",
+            "Saturated": "wetland"
+        },
+        "warm": {
+            "Parched": "desert",
+            "Arid": "savanna",
+            "Dry": "savanna",
+            "Balanced": "woodland",
+            "Humid": "forest",
+            "Wet": "forest",
+            "Saturated": "wetland"
+        },
+        "tropical": {
+            "Parched": "desert",
+            "Arid": "savanna",
+            "Dry": "woodland",
+            "Balanced": "jungle",
+            "Humid": "jungle",
+            "Wet": "jungle",
+            "Saturated": "mangrove"
+        },
+        "extreme": {
+            "Parched": "desert",
+            "Arid": "desert",
+            "Dry": "savanna",
+            "Balanced": "savanna",
+            "Humid": "woodland",
+            "Wet": "jungle",
+            "Saturated": "wetland"
+        }
+    }
+}

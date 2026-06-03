@@ -1,4 +1,8 @@
 import { DEFAULT_MAP_SIZE, WORLD_SCALE_CONFIGS } from '../config/worldScaleConfig'
+import biomeBaseMapper from '../data/biomeBaseMapper.json'
+import moistureMapper from '../data/moistureMapper.json'
+import terrainBiomeMapper from '../data/terrainBiomeMapper.json'
+import terrainMapper from '../data/terrainMapper.json'
 import temperatureMapper from '../data/temperatureMapper.json'
 import type { County, SeaZone, WorldConfig, WorldData } from '../types/world'
 import { generateCounties, mergeCountiesPhase } from './counties'
@@ -45,7 +49,39 @@ interface TemperatureMapperDocument {
   ranges: TemperatureMapperRange[]
 }
 
+interface MoistureMapperRange {
+  min: number
+  max: number
+  label: string
+}
+
+interface MoistureMapperDocument {
+  ranges: MoistureMapperRange[]
+}
+
+interface BiomeBaseMapperDocument {
+  matrix: Record<string, Record<string, string>>
+}
+
+interface TerrainMapperRange {
+  min: number
+  max: number
+  label: string
+}
+
+interface TerrainMapperDocument {
+  ranges: TerrainMapperRange[]
+}
+
+interface TerrainBiomeMapperDocument {
+  terrainBiomes: Record<string, Record<string, string>>
+}
+
 const climateRanges = (temperatureMapper as TemperatureMapperDocument).ranges
+const moistureRanges = (moistureMapper as MoistureMapperDocument).ranges
+const biomeBaseMatrix = (biomeBaseMapper as BiomeBaseMapperDocument).matrix
+const terrainRanges = (terrainMapper as TerrainMapperDocument).ranges
+const terrainBiomeByClass = (terrainBiomeMapper as TerrainBiomeMapperDocument).terrainBiomes
 
 function temperatureFromY(
   y: number,
@@ -97,6 +133,76 @@ function climateFromTemperature(temperature: number): string {
   return climateRanges[climateRanges.length - 1]?.climateId ?? 'extreme'
 }
 
+function moistureBandFromValue(moisture: number): string {
+  const clampedMoisture = clamp(moisture, 0, 1)
+
+  for (let index = 0; index < moistureRanges.length; index += 1) {
+    const range = moistureRanges[index]
+    const isLastRange = index === moistureRanges.length - 1
+    const insideRange =
+      clampedMoisture >= range.min &&
+      (isLastRange ? clampedMoisture <= range.max : clampedMoisture < range.max)
+
+    if (insideRange) {
+      return range.label
+    }
+  }
+
+  return moistureRanges[moistureRanges.length - 1]?.label ?? 'Balanced'
+}
+
+function terrainClassFromElevation(elevation: number): string {
+  const clampedElevation = clamp(elevation, 0, 1)
+
+  for (let index = 0; index < terrainRanges.length; index += 1) {
+    const range = terrainRanges[index]
+    const isLastRange = index === terrainRanges.length - 1
+    const insideRange =
+      clampedElevation >= range.min &&
+      (isLastRange ? clampedElevation <= range.max : clampedElevation < range.max)
+
+    if (insideRange) {
+      return range.label
+    }
+  }
+
+  return terrainRanges[terrainRanges.length - 1]?.label ?? 'Peaks'
+}
+
+function normalizeBaseBiomeForTerrain(baseBiomeId: string): string {
+  switch (baseBiomeId) {
+    case 'polar-desert':
+      return 'desert'
+    case 'taiga':
+      return 'forest'
+    case 'boreal-wetland':
+      return 'wetland'
+    case 'steppe':
+      return 'grassland'
+    case 'mangrove':
+      return 'wetland'
+    case 'frozen-wetland':
+      return 'wetland'
+    default:
+      return baseBiomeId
+  }
+}
+
+function assignCountyBiomes(counties: County[]): void {
+  counties.forEach((county) => {
+    const moistureBand = moistureBandFromValue(county.moisture)
+    const biomeForClimate = biomeBaseMatrix[county.climateId] ?? {}
+    const baseBiomeId = biomeForClimate[moistureBand] ?? PLAINS_BIOME_ID
+    const normalizedBiomeId = normalizeBaseBiomeForTerrain(baseBiomeId)
+    const terrainClass = terrainClassFromElevation(county.elevation)
+    const terrainBiomes = terrainBiomeByClass[terrainClass]
+    county.biomeId =
+      terrainBiomes?.[normalizedBiomeId] ??
+      terrainBiomes?.[baseBiomeId] ??
+      terrainClass
+  })
+}
+
 function assignRegionTemperatures(world: {
   metadata: Pick<WorldData['metadata'], 'height'>
   config: Pick<WorldConfig, 'latitudeTemperatureGamma' | 'riverCountyTemperatureCooling'>
@@ -118,7 +224,6 @@ function assignRegionTemperatures(world: {
     const biomeModifier = riverCountyIds.has(county.id)
       ? -riverCountyTemperatureCooling
       : 0
-    county.biomeId = PLAINS_BIOME_ID
     county.temperatureBase = base
     county.temperatureGlobalModifier = GLOBAL_TEMPERATURE_MODIFIER
     county.temperatureBiomeModifier = biomeModifier
@@ -340,6 +445,8 @@ export function generateWorld(
       moistureNoiseStrength: config.moistureNoiseStrength,
     },
   })
+
+  assignCountyBiomes(countyResult.counties)
 
   landMasses.forEach((landMass) => {
     const stats = elevationStatsByLandMassId.get(landMass.id)

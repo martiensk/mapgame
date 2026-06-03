@@ -178,6 +178,18 @@
   margin: 0 0 4px;
 }
 
+.sprite-family-debug-list {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #26443f;
+}
+
+.sprite-family-debug-list p {
+  margin: 0 0 3px;
+  color: #c5dbd1;
+  font-size: 0.82rem;
+}
+
 .scale-row {
   display: flex;
   flex-direction: column;
@@ -253,6 +265,16 @@
 
 .selected-county-overlay p {
   margin: 0 0 4px;
+}
+
+.map-overlay {
+  background-image: url('../assets/textures/clean-gray-paper.png') repeat;
+  opacity: 0.5;
+  border: 1px solid red inset;
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
 }
 
 @media (max-width: 600px) {

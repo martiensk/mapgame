@@ -2,16 +2,123 @@
     "version": 1,
     "biomes": [
         {
+            "id": "polar-desert",
+            "label": "Polar Desert",
+            "regionType": "land",
+            "descriptor": "Wind-scoured permafrost with sparse vegetation.",
+            "color": "#d9d3c4"
+        },
+        {
+            "id": "tundra",
+            "label": "Tundra",
+            "regionType": "land",
+            "descriptor": "Treeless cold plains with short growing seasons.",
+            "color": "#b5c8b0"
+        },
+        {
+            "id": "frozen-wetland",
+            "label": "Frozen Wetland",
+            "regionType": "land",
+            "descriptor": "Boggy frozen flats with seasonal thaw pockets.",
+            "color": "#9fb8c8"
+        },
+        {
+            "id": "glacier",
+            "label": "Glacier",
+            "regionType": "land",
+            "descriptor": "Permanent ice sheets and flowing glacial fields.",
+            "color": "#e8f4ff"
+        },
+        {
+            "id": "taiga",
+            "label": "Taiga",
+            "regionType": "land",
+            "descriptor": "Cold conifer forests spanning vast northern belts.",
+            "color": "#5f8268"
+        },
+        {
+            "id": "boreal-wetland",
+            "label": "Boreal Wetland",
+            "regionType": "land",
+            "descriptor": "Muskeg and peat-rich wetlands in boreal zones.",
+            "color": "#6b8f85"
+        },
+        {
+            "id": "steppe",
+            "label": "Steppe",
+            "regionType": "land",
+            "descriptor": "Dry grass plains shaped by wind and drought.",
+            "color": "#c7b371"
+        },
+        {
+            "id": "grassland",
+            "label": "Grassland",
+            "regionType": "land",
+            "descriptor": "Open fertile plains dominated by grasses.",
+            "color": "#99b85d"
+        },
+        {
+            "id": "woodland",
+            "label": "Woodland",
+            "regionType": "land",
+            "descriptor": "Patchwork tree cover with open understory.",
+            "color": "#7ea064"
+        },
+        {
+            "id": "forest",
+            "label": "Forest",
+            "regionType": "land",
+            "descriptor": "Dense closed-canopy forests with rich soils.",
+            "color": "#4f8a4f"
+        },
+        {
+            "id": "wetland",
+            "label": "Wetland",
+            "regionType": "land",
+            "descriptor": "Waterlogged lowlands, marshes, and floodplains.",
+            "color": "#4e9b92"
+        },
+        {
+            "id": "desert",
+            "label": "Desert",
+            "regionType": "land",
+            "descriptor": "Arid basins with sparse hardy vegetation.",
+            "color": "#d6b36b"
+        },
+        {
+            "id": "savanna",
+            "label": "Savanna",
+            "regionType": "land",
+            "descriptor": "Seasonal grasslands dotted with hardy trees.",
+            "color": "#c7ad57"
+        },
+        {
+            "id": "jungle",
+            "label": "Jungle",
+            "regionType": "land",
+            "descriptor": "Lush humid rainforest with layered canopy.",
+            "color": "#2f8f5b"
+        },
+        {
+            "id": "mangrove",
+            "label": "Mangrove",
+            "regionType": "land",
+            "descriptor": "Tidal tropical wetlands with salt-tolerant trees.",
+            "color": "#3b8f7e"
+        },
+        {
             "id": "plains",
             "label": "Plains",
             "regionType": "land",
-            "temperatureModifier": 0,
-            "notes": "Default land biome until biome generation is implemented."
+            "descriptor": "Balanced open terrain used as default fallback.",
+            "color": "#8eb668"
         },
         {
             "id": "ocean",
             "label": "Ocean",
             "regionType": "sea",
+            "descriptor": "Open waters and coastal shallows.",
+            "color": "#2a6498",
             "temperatureModifierRule": {
                 "type": "seaZoneLayerMultiplier",
                 "multiplier": -3,
@@ -22,8 +129,9 @@
             "id": "freezing ocean",
             "label": "Freezing Ocean",
             "regionType": "sea",
-            "temperatureModifier": 0,
-            "notes": "Assigned automatically when final sea-zone temperature drops below 0."
+            "descriptor": "Icy waters with persistent surface freeze.",
+            "color": "#9dc8e8",
+            "temperatureModifier": 0
         }
     ]
 }

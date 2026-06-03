@@ -340,7 +340,6 @@ export function generateCounties(
   }
 
   const maxLandCount = Math.floor(cells.length / 3)
-  let toRemove = Math.max(0, chosenLandMassByCellId.size - maxLandCount)
   const edgeEpsilon = Math.max(config.width, config.height) * 1e-6
 
   const getOceanNeighborCount = (cellId: string): number => {
@@ -425,7 +424,7 @@ export function generateCounties(
     })
   }
 
-  toRemove = Math.max(0, chosenLandMassByCellId.size - maxLandCount)
+  let toRemove = Math.max(0, chosenLandMassByCellId.size - maxLandCount)
 
   while (toRemove > 0 && chosenLandMassByCellId.size > 0) {
     const coastlineCandidates: Array<{
